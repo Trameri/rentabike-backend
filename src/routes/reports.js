@@ -1,0 +1,11 @@
+import { Router } from 'express';
+import { requireAuth } from '../middleware/auth.js';
+import { summary, superadminStats, detailedStats, topBikes, revenueByDay } from '../controllers/reportController.js';
+const r = Router();
+r.use(requireAuth);
+r.get('/summary', summary);
+r.get('/superadmin-stats', superadminStats);
+r.get('/detailed-stats', detailedStats);
+r.get('/top-bikes', topBikes);
+r.get('/revenue-by-day', revenueByDay);
+export default r;
