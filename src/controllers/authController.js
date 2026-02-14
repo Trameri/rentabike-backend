@@ -42,10 +42,20 @@ export async function login(req,res){
     const user = await User.findOne({ username }).populate('location');
     if (user) {
       const ok = await user.comparePassword(password);
-      if(!ok) return res.status(401).json({ error: 'Invalid credentials' });
+      if(!ok) return res.status(401).json({ error: 'Credenziali non valide' });
       const payload = { uid: user._id, username: user.username, role: user.role, locationId: user.location?._id || null, locationCode: user.location?.code || null };
       const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '12h' });
-      return res.json({ token, user: { username: user.username, role: user.role, location: user.location } });
+      return res.json({ 
+        success: true, 
+        token, 
+        redirectUrl: 'https://rentabikefrontend.vercel.app/',
+        user: { 
+          id: user._id,
+          username: user.username, 
+          role: user.role, 
+          location: user.location 
+        } 
+      });
     }
   } catch (error) {
     console.log('Database non disponibile, uso utenti temporanei');
@@ -54,12 +64,12 @@ export async function login(req,res){
   // Fallback con utenti temporanei
   const tempUser = tempUsers.find(u => u.username === username);
   if (!tempUser) {
-    return res.status(401).json({ error: 'Invalid credentials' });
+    return res.status(401).json({ error: 'Credenziali non valide' });
   }
   
   const ok = await bcrypt.compare(password, tempUser.passwordHash);
   if (!ok) {
-    return res.status(401).json({ error: 'Invalid credentials' });
+    return res.status(401).json({ error: 'Credenziali non valide' });
   }
   
   const payload = { 
@@ -72,8 +82,11 @@ export async function login(req,res){
   const token = jwt.sign(payload, process.env.JWT_SECRET || 'fallback-secret', { expiresIn: '12h' });
   
   res.json({ 
+    success: true,
+    redirectUrl: 'https://rentabikefrontend.vercel.app/',
     token, 
     user: { 
+      id: tempUser._id,
       username: tempUser.username, 
       role: tempUser.role, 
       location: tempUser.location 
