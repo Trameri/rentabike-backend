@@ -41,6 +41,12 @@ r.get("/test", (req, res) => {
 // Login usando il controller
 r.post('/login', login);
 
+// Logout - JWT stateless: basta rispondere 200 + JSON
+// Il frontend rimuoverà il token dal localStorage
+r.post('/logout', (req, res) => {
+  res.status(200).json({ success: true, message: 'Logout effettuato' });
+});
+
 // Rotta per ottenere informazioni sull'utente corrente
 r.get("/me", requireAuth, async (req, res) => {
   try {
