@@ -38,13 +38,14 @@ r.get("/test", (req, res) => {
   res.json({ message: "Server funzionante!", timestamp: new Date().toISOString() });
 });
 
-// Login usando il controller
-r.post('/login', login);
-
-// Logout - JWT stateless: basta rispondere 200 + JSON
-// Il frontend rimuoverà il token dal localStorage
-r.post('/logout', (req, res) => {
-  res.status(200).json({ success: true, message: 'Logout effettuato' });
+// Login usando il controller con header espliciti per JSON puro
+r.post('/login', (req, res) => {
+  // Imposta header espliciti per garantire risposta JSON senza redirect
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  
+  // Usa la funzione login già importata
+  login(req, res);
 });
 
 // Rotta per ottenere informazioni sull'utente corrente

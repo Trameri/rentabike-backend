@@ -34,15 +34,6 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Root endpoint
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'RentABike API', 
-    version: '1.0.0',
-    endpoints: '/api/auth, /api/bikes, /api/contracts, etc.'
-  });
-});
-
 // routes
 app.use("/api/auth", authRoutes);
 app.use("/api/bikes", bikeRoutes);
