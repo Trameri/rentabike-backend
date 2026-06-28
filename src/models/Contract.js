@@ -41,6 +41,7 @@ const ContractSchema = new mongoose.Schema({
   paymentLink: { type: String },
   paymentNotes: { type: String },
   isReservation: { type: Boolean, default: false },
+  reservationDate: { type: String },
   wasReserved: { type: Boolean, default: false }, // Traccia se il contratto era originariamente una prenotazione
   actualStartAt: { type: Date },
   finalPrice: { type: Number },

@@ -53,7 +53,7 @@ function calculateFinalPrice(contract) {
 }
 
 export async function create(req,res){
-  const { customer, items, notes, status, paymentMethod, reservationPrepaid, location } = req.body;
+  const { customer, items, notes, status, paymentMethod, reservationPrepaid, location, startAt, endAt, reservationDate } = req.body;
   
   // Debug: verifica il contenuto di req.user
   console.log('DEBUG - req.user:', req.user);
@@ -143,6 +143,10 @@ export async function create(req,res){
     customer, items: populated, notes, status: status || 'in-use',
     location: contractLocation, paymentMethod: paymentMethod||null, paid: reservationPrepaid||false,
     reservationPrepaid: !!reservationPrepaid,
+    startAt: status === 'reserved' && startAt ? new Date(startAt) : undefined,
+    endAt: status === 'reserved' && endAt ? new Date(endAt) : undefined,
+    reservationDate: status === 'reserved' && reservationDate ? reservationDate : undefined,
+    isReservation: status === 'reserved',
     totals,
     createdBy: username,
     modificationHistory: [{
