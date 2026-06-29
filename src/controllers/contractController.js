@@ -54,9 +54,12 @@ function calculateFinalPrice(contract) {
 
 export async function create(req,res){
   const { customer, items, notes, status, paymentMethod, reservationPrepaid, location, startAt, endAt, reservationDate } = req.body;
-  
-  // Debug: verifica il contenuto di req.user
-  console.log('DEBUG - req.user:', req.user);
+
+  console.log('=== CREATE CONTRACT DEBUG ===');
+  console.log('Body received:', JSON.stringify(req.body, null, 2));
+  console.log('startAt value:', startAt);
+  console.log('status:', status);
+  console.log('isReservation will be:', status === 'reserved');
   
   // Determina la location: superadmin può specificarla, altri usano la loro
   const contractLocation = req.user.role === 'superadmin' && location ? location : req.user.locationId;
@@ -138,7 +141,22 @@ export async function create(req,res){
   
   // Ottieni username con fallback
   const username = getUsername(req.user);
-  
+
+  // Debug: verifica la data di prenotazione
+  console.log('=== DATE DEBUG ===');
+  console.log('startAt raw:', startAt);
+  console.log('startAt typeof:', typeof startAt);
+  const parsedStartAt = startAt ? new Date(startAt) : null;
+  console.log('startAt parsed:', parsedStartAt);
+  console.log('startAt parsed valid:', parsedStartAt ? !isNaN(parsedStartAt.getTime()) : false);
+  console.log('startAt parsed ISO:', parsedStartAt ? parsedStartAt.toISOString() : null);
+  console.log('reservationDate:', reservationDate);
+
+  // Use reservationDate as fallback for startAt if startAt is invalid
+  const finalStartAt = status === 'reserved' 
+    ? (parsedStartAt && !isNaN(parsedStartAt.getTime()) ? parsedStartAt : (reservationDate ? new Date(reservationDate) : new Date())) 
+    : undefined;
+
   const row = await Contract.create({
     customer, items: populated, notes, status: status || 'in-use',
     location: contractLocation, paymentMethod: paymentMethod||null, paid: reservationPrepaid||false,
@@ -154,7 +172,9 @@ export async function create(req,res){
       performedBy: username,
       details: { itemsCount: populated.length, status: status || 'in-use', totals }
     }]
-  });
+});
+  console.log('Saved contract startAt:', row.startAt);
+  console.log('Saved contract startAt ISO:', row.startAt ? row.startAt.toISOString() : null);
   res.json(row);
 }
 
