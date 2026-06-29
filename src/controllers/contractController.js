@@ -53,73 +53,121 @@ function calculateFinalPrice(contract) {
 }
 
 export async function create(req,res){
-  const { customer, items, notes, status, paymentMethod, reservationPrepaid, location, startAt, endAt, reservationDate } = req.body;
+   const { customer, items, notes, status, paymentMethod, reservationPrepaid, location, startAt, endAt, reservationDate } = req.body;
 
-  console.log('=== CREATE CONTRACT DEBUG ===');
-  console.log('Body received:', JSON.stringify(req.body, null, 2));
-  console.log('startAt value:', startAt);
-  console.log('status:', status);
-  console.log('isReservation will be:', status === 'reserved');
-  
-  // Determina la location: superadmin può specificarla, altri usano la loro
-  const contractLocation = req.user.role === 'superadmin' && location ? location : req.user.locationId;
-  
-  const populated = [];
-  for(const it of items){
-    if(it.kind === 'bike'){
-      const bikeFilter = { _id: it.id };
-      // Verifica che la bici appartenga alla location corretta
-      if(req.user.role !== 'superadmin') {
-        bikeFilter.location = req.user.locationId;
-      } else {
-        bikeFilter.location = contractLocation;
-      }
-      
-      const b = await Bike.findOne(bikeFilter);
-      if(!b) return res.status(400).json({ error: 'Bike not found in this location' });
-      populated.push({ 
-        kind:'bike', 
-        refId:b._id, 
-        kindRef:'Bike', 
-        name:b.name, 
-        barcode:b.barcode, 
-        photoUrl:b.photoUrl, 
-        priceHourly: it.priceHourly || b.priceHourly, // Usa prezzo modificato se presente
-        priceDaily: it.priceDaily || b.priceDaily,   // Usa prezzo modificato se presente
-        originalPriceHourly: b.priceHourly,          // Salva sempre prezzo originale
-        originalPriceDaily: b.priceDaily,            // Salva sempre prezzo originale
-        insurance: !!it.insurance, 
-        insuranceFlat: it.insuranceFlat||0 
-      });
-      await Bike.updateOne({ _id: b._id }, { status: status==='reserved' ? 'reserved' : 'in-use' });
-    } else {
-      const accessoryFilter = { _id: it.id };
-      // Verifica che l'accessorio appartenga alla location corretta
-      if(req.user.role !== 'superadmin') {
-        accessoryFilter.location = req.user.locationId;
-      } else {
-        accessoryFilter.location = contractLocation;
-      }
-      
-      const a = await Accessory.findOne(accessoryFilter);
-      if(!a) return res.status(400).json({ error: 'Accessory not found in this location' });
-      populated.push({ 
-        kind:'accessory', 
-        refId:a._id, 
-        kindRef:'Accessory', 
-        name:a.name, 
-        barcode:a.barcode, 
-        photoUrl:a.photoUrl, 
-        priceHourly: it.priceHourly || a.priceHourly, // Usa prezzo modificato se presente
-        priceDaily: it.priceDaily || a.priceDaily,   // Usa prezzo modificato se presente
-        originalPriceHourly: a.priceHourly,          // Salva sempre prezzo originale
-        originalPriceDaily: a.priceDaily,            // Salva sempre prezzo originale
-        insurance: !!it.insurance, 
-        insuranceFlat: it.insuranceFlat||0 
-      });
-      await Accessory.updateOne({ _id: a._id }, { status: status==='reserved' ? 'reserved' : 'in-use' });
-    }
-  }
+   console.log('=== CREATE CONTRACT DEBUG ===');
+   console.log('Body received:', JSON.stringify(req.body, null, 2));
+   console.log('startAt value:', startAt);
+   console.log('status:', status);
+   console.log('isReservation will be:', status === 'reserved');
+   
+   // Determina la location: superadmin può specificarla, altri usano la loro
+   const contractLocation = req.user.role === 'superadmin' && location ? location : req.user.locationId;
+
+   // Parse delle date per validazione sovrapposizioni
+   const reqStartAt = startAt ? new Date(startAt) : (reservationDate ? new Date(reservationDate) : new Date());
+   const reqEndAt = endAt ? new Date(endAt) : null;
+
+   // Validazione sovrapposizioni per bici
+   for (const it of items) {
+     if (it.kind === 'bike') {
+       const bikeFilter = { _id: it.id };
+       if (req.user.role !== 'superadmin') {
+         bikeFilter.location = req.user.locationId;
+       } else {
+         bikeFilter.location = contractLocation;
+       }
+       
+       const bike = await Bike.findOne(bikeFilter);
+       if (!bike) return res.status(400).json({ error: 'Bike not found in this location' });
+
+       // Verifica sovrapposizioni con contratti esistenti (in-use o reserved)
+       const conflictingContracts = await Contract.find({
+         status: { $in: ['in-use', 'reserved'] },
+         location: contractLocation,
+         'items.refId': it.id,
+         'items.kind': 'bike'
+       }).select('items startAt endAt');
+
+       for (const existingContract of conflictingContracts) {
+         // Trova il periodo del contratto esistente
+         const existingStart = new Date(existingContract.startAt);
+         const existingEnd = existingContract.endAt ? new Date(existingContract.endAt) : null;
+         
+         // Verifica sovrapposizione: due intervalli si sovrappongono se
+         // inizio nuovo <= fine vecchio AND fine nuovo >= inizio vecchio
+         const overlap = reqStartAt <= (existingEnd || new Date(8640000000000000)) && 
+                         (reqEndAt || new Date(8640000000000000)) >= existingStart;
+         
+         const hasActiveItem = existingContract.items.some(item => 
+           item.refId.toString() === it.id && !item.returnedAt
+         );
+         
+         if (overlap && hasActiveItem) {
+           return res.status(400).json({ 
+             error: `La bici "${bike.name}" (barcode: ${bike.barcode}) è già noleggiata o prenotata per il periodo richiesto` 
+           });
+         }
+       }
+     }
+   }
+
+   const populated = [];
+   for(const it of items){
+     if(it.kind === 'bike'){
+       const bikeFilter = { _id: it.id };
+       // Verifica che la bici appartenga alla location corretta
+       if(req.user.role !== 'superadmin') {
+         bikeFilter.location = req.user.locationId;
+       } else {
+         bikeFilter.location = contractLocation;
+       }
+       
+       const b = await Bike.findOne(bikeFilter);
+       if(!b) return res.status(400).json({ error: 'Bike not found in this location' });
+       populated.push({ 
+         kind:'bike', 
+         refId:b._id, 
+         kindRef:'Bike', 
+         name:b.name, 
+         barcode:b.barcode, 
+         photoUrl:b.photoUrl, 
+         priceHourly: it.priceHourly || b.priceHourly, // Usa prezzo modificato se presente
+         priceDaily: it.priceDaily || b.priceDaily,   // Usa prezzo modificato se presente
+         originalPriceHourly: b.priceHourly,          // Salva sempre prezzo originale
+         originalPriceDaily: b.priceDaily,            // Salva sempre prezzo originale
+         insurance: !!it.insurance, 
+         insuranceFlat: it.insuranceFlat||0 
+       });
+       await Bike.updateOne({ _id: b._id }, { status: status==='reserved' ? 'reserved' : 'in-use' });
+     } else {
+       const accessoryFilter = { _id: it.id };
+       // Verifica che l'accessorio appartenga alla location corretta
+       if(req.user.role !== 'superadmin') {
+         accessoryFilter.location = req.user.locationId;
+       } else {
+         accessoryFilter.location = contractLocation;
+       }
+       
+       const a = await Accessory.findOne(accessoryFilter);
+       if(!a) return res.status(400).json({ error: 'Accessory not found in this location' });
+       populated.push({ 
+         kind:'accessory', 
+         refId:a._id, 
+         kindRef:'Accessory', 
+         name:a.name, 
+         barcode:a.barcode, 
+         photoUrl:a.photoUrl, 
+         priceHourly: it.priceHourly || a.priceHourly, // Usa prezzo modificato se presente
+         priceDaily: it.priceDaily || a.priceDaily,   // Usa prezzo modificato se presente
+         originalPriceHourly: a.priceHourly,          // Salva sempre prezzo originale
+         originalPriceDaily: a.priceDaily,            // Salva sempre prezzo originale
+         insurance: !!it.insurance, 
+         insuranceFlat: it.insuranceFlat||0 
+       });
+       await Accessory.updateOne({ _id: a._id }, { status: status==='reserved' ? 'reserved' : 'in-use' });
+     }
+   }
   
   // Calcola i totali iniziali
   let subtotal = 0;
@@ -152,18 +200,10 @@ export async function create(req,res){
   console.log('startAt parsed ISO:', parsedStartAt ? parsedStartAt.toISOString() : null);
   console.log('reservationDate:', reservationDate);
 
-  // Use reservationDate as fallback for startAt if startAt is invalid
-  const finalStartAt = status === 'reserved' 
-    ? (parsedStartAt && !isNaN(parsedStartAt.getTime()) ? parsedStartAt : (reservationDate ? new Date(reservationDate) : new Date())) 
-    : undefined;
-
-  const row = await Contract.create({
+  const createData = {
     customer, items: populated, notes, status: status || 'in-use',
     location: contractLocation, paymentMethod: paymentMethod||null, paid: reservationPrepaid||false,
     reservationPrepaid: !!reservationPrepaid,
-    startAt: status === 'reserved' ? (startAt ? new Date(startAt) : new Date()) : undefined,
-    endAt: status === 'reserved' ? (endAt ? new Date(endAt) : undefined) : undefined,
-    reservationDate: status === 'reserved' && reservationDate ? reservationDate : undefined,
     isReservation: status === 'reserved',
     totals,
     createdBy: username,
@@ -172,7 +212,15 @@ export async function create(req,res){
       performedBy: username,
       details: { itemsCount: populated.length, status: status || 'in-use', totals }
     }]
-});
+  };
+
+  if (status === 'reserved') {
+    createData.startAt = parsedStartAt && !isNaN(parsedStartAt.getTime()) ? parsedStartAt : (reservationDate ? new Date(reservationDate) : new Date());
+    createData.endAt = endAt ? new Date(endAt) : undefined;
+    createData.reservationDate = reservationDate;
+  }
+
+  const row = await Contract.create(createData);
   console.log('Saved contract startAt:', row.startAt);
   console.log('Saved contract startAt ISO:', row.startAt ? row.startAt.toISOString() : null);
   res.json(row);
@@ -350,6 +398,37 @@ export async function history(req, res) {
     .sort({ createdAt: -1 })
     .limit(100); // Limitiamo a 100 risultati per performance
   
+  res.json(contracts);
+}
+
+export async function byDay(req, res) {
+  const { date } = req.params;
+  const filter = {};
+
+  if (req.user.role !== 'superadmin') {
+    filter.location = req.user.locationId;
+  }
+
+  if (!date) {
+    return res.status(400).json({ error: 'Data richiesta (YYYY-MM-DD)' });
+  }
+
+  const startOfDay = new Date(date + 'T00:00:00.000Z');
+  const endOfDay = new Date(date + 'T23:59:59.999Z');
+
+  filter.startAt = {
+    $gte: startOfDay,
+    $lte: endOfDay
+  };
+
+  const contracts = await Contract.find(filter)
+    .populate('location')
+    .populate({
+      path: 'items.refId',
+      select: 'name barcode photoUrl'
+    })
+    .sort({ startAt: 1 });
+
   res.json(contracts);
 }
 

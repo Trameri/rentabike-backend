@@ -1,26 +1,60 @@
 import { customAlphabet } from 'nanoid'
 import Bike from '../models/Bike.js';
+import Contract from '../models/Contract.js';
 const nanoid = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', 10);
 
 export async function list(req,res){
-  const { q, type, status, location } = req.query;
-  const filter = {};
-  
-  // Superadmin può vedere tutto, altri utenti solo la loro location
-  if(req.user.role !== 'superadmin') {
-    filter.location = req.user.locationId;
-  } else if(location) {
-    // Superadmin può filtrare per location specifica
-    filter.location = location;
-  }
-  
-  if(type) filter.type = type;
-  if(status) filter.status = status;
-  if(q) filter.$or = [{ name: new RegExp(q,'i') }, { barcode: new RegExp(q,'i') }];
-  
-  const rows = await Bike.find(filter).populate('location').sort({ createdAt: -1 });
-  res.json(rows);
-}
+   const { q, type, status, location } = req.query;
+   const filter = {};
+   
+   // Superadmin può vedere tutto, altri utenti solo la loro location
+   if(req.user.role !== 'superadmin') {
+     filter.location = req.user.locationId;
+   } else if(location) {
+     // Superadmin può filtrare per location specifica
+     filter.location = location;
+   }
+   
+   if(type) filter.type = type;
+   if(status) filter.status = status;
+   if(q) filter.$or = [{ name: new RegExp(q,'i') }, { barcode: new RegExp(q,'i') }];
+   
+   const rows = await Bike.find(filter).populate('location').sort({ createdAt: -1 });
+   
+   // Ricalcola lo stato dinamico in base ai contratti attivi
+   const now = new Date();
+   const activeContracts = await Contract.find({
+     status: { $in: ['in-use', 'reserved'] },
+     startAt: { $lte: now },
+     $or: [
+       { endAt: { $exists: false } },
+       { endAt: { $gte: now } }
+     ]
+   }).select('items');
+   
+   // Estrai gli ID delle bici in uso/prenotate
+   const bikesInUse = new Set();
+   for (const contract of activeContracts) {
+     for (const item of contract.items) {
+       if (item.kind === 'bike' && !item.returnedAt) {
+         bikesInUse.add(item.refId.toString());
+       }
+     }
+   }
+   
+   // Aggiorna lo stato dinamico nelle bici
+   const bikesWithDynamicStatus = rows.map(bike => {
+     const bikeObj = bike.toObject();
+     // Lo stato dinamico ha priorità: se c'è un contratto attivo, la bici è in-use
+     // a meno che non sia in manutenzione o prestito
+     if (bikeObj.status === 'available' && bikesInUse.has(bikeObj._id.toString())) {
+       bikeObj.status = 'in-use';
+     }
+     return bikeObj;
+   });
+   
+   res.json(bikesWithDynamicStatus);
+ }
 export async function create(req,res){
   try {
     console.log('=== CREATE BIKE REQUEST ===');
@@ -320,15 +354,39 @@ export async function bulkCreate(req, res) {
 }
 
 export async function byBarcode(req,res){
-  const { code } = req.params;
-  const filter = { barcode: code };
-  
-  // Non-superadmin possono cercare solo nelle loro bici
-  if(req.user.role !== 'superadmin') {
-    filter.location = req.user.locationId;
-  }
-  
-  const row = await Bike.findOne(filter).populate('location');
-  if(!row) return res.status(404).json({ error: 'Not found' });
-  res.json(row);
-}
+   const { code } = req.params;
+   const filter = { barcode: code };
+   
+   // Non-superadmin possono cercare solo nelle loro bici
+   if(req.user.role !== 'superadmin') {
+     filter.location = req.user.locationId;
+   }
+   
+   const row = await Bike.findOne(filter).populate('location');
+   if(!row) return res.status(404).json({ error: 'Not found' });
+   
+   // Ricalcola stato dinamico per questa bici
+   const now = new Date();
+   const activeContract = await Contract.findOne({
+     status: { $in: ['in-use', 'reserved'] },
+     startAt: { $lte: now },
+     $or: [
+       { endAt: { $exists: false } },
+       { endAt: { $gte: now } }
+     ],
+     'items.refId': row._id,
+     'items.kind': 'bike'
+   }).select('items');
+   
+   const bikeObj = row.toObject();
+   const hasActiveContract = activeContract && 
+     activeContract.items.some(item => 
+       item.refId.toString() === row._id.toString() && !item.returnedAt
+     );
+   
+   if (bikeObj.status === 'available' && hasActiveContract) {
+     bikeObj.status = 'in-use';
+   }
+   
+   res.json(bikeObj);
+ }
