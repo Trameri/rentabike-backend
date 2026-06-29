@@ -15,7 +15,8 @@ import {
   cancelContract,
   getModificationHistory,
   updateItemPrices,
-  completePayment
+  completePayment,
+  byDay
 } from '../controllers/contractController.js';
 
 const r = Router();
@@ -25,6 +26,7 @@ r.use(requireAuth);
 r.get('/', list);
 r.get('/history', history);
 r.get('/swap-history', getSwapHistory);
+r.get('/day/:date', byDay);
 r.get('/active-by-barcode/:code', activeByBarcode);
 r.get('/:id', byId);
 r.post('/', create);

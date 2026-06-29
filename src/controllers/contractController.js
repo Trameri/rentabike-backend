@@ -81,34 +81,42 @@ export async function create(req,res){
        const bike = await Bike.findOne(bikeFilter);
        if (!bike) return res.status(400).json({ error: 'Bike not found in this location' });
 
-       // Verifica sovrapposizioni con contratti esistenti (in-use o reserved)
-       const conflictingContracts = await Contract.find({
-         status: { $in: ['in-use', 'reserved'] },
-         location: contractLocation,
-         'items.refId': it.id,
-         'items.kind': 'bike'
-       }).select('items startAt endAt');
+        // Verifica sovrapposizioni con contratti esistenti (in-use o reserved)
+        const conflictingContracts = await Contract.find({
+          status: { $in: ['in-use', 'reserved'] },
+          location: contractLocation,
+          'items.refId': it.id,
+          'items.kind': 'bike'
+        }).select('items startAt endAt status');
 
-       for (const existingContract of conflictingContracts) {
-         // Trova il periodo del contratto esistente
-         const existingStart = new Date(existingContract.startAt);
-         const existingEnd = existingContract.endAt ? new Date(existingContract.endAt) : null;
-         
-         // Verifica sovrapposizione: due intervalli si sovrappongono se
-         // inizio nuovo <= fine vecchio AND fine nuovo >= inizio vecchio
-         const overlap = reqStartAt <= (existingEnd || new Date(8640000000000000)) && 
-                         (reqEndAt || new Date(8640000000000000)) >= existingStart;
-         
-         const hasActiveItem = existingContract.items.some(item => 
-           item.refId.toString() === it.id && !item.returnedAt
-         );
-         
-         if (overlap && hasActiveItem) {
-           return res.status(400).json({ 
-             error: `La bici "${bike.name}" (barcode: ${bike.barcode}) è già noleggiata o prenotata per il periodo richiesto` 
-           });
-         }
-       }
+        for (const existingContract of conflictingContracts) {
+          const existingStart = new Date(existingContract.startAt);
+          const existingEnd = existingContract.endAt ? new Date(existingContract.endAt) : null;
+
+          if (existingContract.status === 'reserved' && existingEnd === null && existingStart > reqStartAt) {
+            continue;
+          }
+
+          if (existingContract.status === 'reserved' && existingEnd !== null && reqEndAt === null && existingStart > reqStartAt) {
+            continue;
+          }
+
+          const newEndEffective = reqEndAt ? new Date(reqEndAt) : new Date(8640000000000000);
+          const existingEndEffective = existingEnd ? existingEnd : new Date(8640000000000000);
+
+          const overlap = Math.max(reqStartAt.getTime(), existingStart.getTime()) <=
+                          Math.min(newEndEffective.getTime(), existingEndEffective.getTime());
+
+          const hasActiveItem = existingContract.items.some(item =>
+            item.refId.toString() === it.id && !item.returnedAt
+          );
+
+          if (overlap && hasActiveItem) {
+            return res.status(400).json({
+              error: `La bici "${bike.name}" (barcode: ${bike.barcode}) è già noleggiata o prenotata per il periodo richiesto`
+            });
+          }
+        }
      }
    }
 
