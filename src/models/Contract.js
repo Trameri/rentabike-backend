@@ -46,8 +46,8 @@ const ContractSchema = new mongoose.Schema({
   wasReserved: { type: Boolean, default: false }, // Traccia se il contratto era originariamente una prenotazione
   actualStartAt: { type: Date },
   finalPrice: { type: Number },
-  finalAmount: { type: Number }, // Prezzo calcolato al momento della restituzione (assicurazione scontata)
-  totalRevenue: { type: Number }, // Ricavo totale inclusa assicurazione
+  finalAmount: { type: Number }, // Importo effettivamente pagato (assicurazione scontata)
+  totalWithInsurance: { type: Number }, // Totale contratto completo (inclusa assicurazione)
   closureNotes: { type: String },
   notes: String,
   totals: { subtotal: { type: Number, default: 0 }, insurance: { type: Number, default: 0 }, grandTotal: { type: Number, default: 0 } },

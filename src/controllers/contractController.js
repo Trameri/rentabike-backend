@@ -356,7 +356,7 @@ export async function close(req,res){
       insurancePaidAmount += it.insuranceFlat || 0;
     }
   }
-  row.totalRevenue = (finalPrice || subtotal) + insurancePaidAmount;
+  row.totalWithInsurance = (finalPrice || subtotal) + insurancePaidAmount;
   row.closureNotes = closureNotes || '';
   row.totals = { subtotal, insurance, grandTotal: subtotal }; // grandTotal senza assicurazione
   
@@ -885,14 +885,14 @@ export async function completePayment(req, res) {
       }
     }
     
-    // Calcola totalRevenue: finalAmount + assicurazione pagata in anticipo
+    // Calcola totalWithInsurance: finalAmount + assicurazione pagata in anticipo
     let insurancePaidAmount = 0;
     for (const item of contract.items) {
       if (item.insurancePaidInAdvance) {
         insurancePaidAmount += item.insuranceFlat || 0;
       }
     }
-    contract.totalRevenue = (contract.finalAmount || finalAmount || 0) + insurancePaidAmount;
+    contract.totalWithInsurance = (contract.finalAmount || finalAmount || 0) + insurancePaidAmount;
     
     // Aggiungi alla cronologia delle modifiche
     contract.modificationHistory.push({
@@ -901,7 +901,7 @@ export async function completePayment(req, res) {
       details: {
         paymentMethod,
         amount: finalAmount || contract.totals.grandTotal,
-        totalRevenue: contract.totalRevenue,
+        totalWithInsurance: contract.totalWithInsurance,
         notes: paymentNotes
       },
       oldValues: { 
@@ -913,7 +913,7 @@ export async function completePayment(req, res) {
         paymentCompleted: true,
         paymentMethod,
         paymentDate: new Date(),
-        totalRevenue: contract.totalRevenue
+        totalWithInsurance: contract.totalWithInsurance
       }
     });
     
@@ -929,11 +929,11 @@ export async function completePayment(req, res) {
       const endTime = new Date(contract.endAt);
       const hours = Math.ceil((endTime - startTime) / (1000 * 60 * 60));
       
-      // Usa totalRevenue per le statistiche (include assicurazione)
+      // Usa totalWithInsurance per le statistiche (include assicurazione)
       await updateDailyStats(contract.location, {
         contractCompleted: true,
         payment: {
-          amount: contract.totalRevenue,
+          amount: contract.totalWithInsurance,
           method: paymentMethod,
           contractId: contract._id,
           notes: paymentNotes
