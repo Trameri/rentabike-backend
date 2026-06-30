@@ -346,9 +346,17 @@ export async function close(req,res){
   row.paymentMethod = paymentMethod || row.paymentMethod;
   row.paid = !!isPaid;
   row.paymentCompleted = !!isPaid; // Aggiungi questo campo per le statistiche
-  // Assicurazione esclusa dai calcoli finanziari su richiesta
+  // Assicurazione esclusa dai calcoli finanziari se pagata in anticipo
   row.finalPrice = finalPrice || subtotal; // Solo subtotal, senza assicurazione
   row.finalAmount = finalPrice || subtotal; // Campo prioritario per le statistiche - solo bici
+  // Calcola totalRevenue: include assicurazione pagata in anticipo
+  let insurancePaidAmount = 0;
+  for (const it of row.items) {
+    if (it.insurancePaidInAdvance) {
+      insurancePaidAmount += it.insuranceFlat || 0;
+    }
+  }
+  row.totalRevenue = (finalPrice || subtotal) + insurancePaidAmount;
   row.closureNotes = closureNotes || '';
   row.totals = { subtotal, insurance, grandTotal: subtotal }; // grandTotal senza assicurazione
   
