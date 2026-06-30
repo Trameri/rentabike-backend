@@ -15,11 +15,6 @@ function calculateFinalPrice(contract) {
     return 0;
   }
 
-  const startTime = new Date(contract.startAt);
-  const endTime = new Date(contract.endAt);
-  const durationMs = endTime - startTime;
-  const durationHours = Math.ceil(durationMs / (1000 * 60 * 60)); // Arrotonda per eccesso
-  const durationDays = Math.ceil(durationHours / 24);
 
   let totalPrice = 0;
 
@@ -28,16 +23,9 @@ function calculateFinalPrice(contract) {
     // Salta gli item già restituiti
     if (item.returnedAt) continue;
 
-    let itemPrice = 0;
-
-    // Determina se usare prezzo orario o giornaliero
-    if (durationHours <= 24) {
-      // Noleggio orario
-      itemPrice = item.priceHourly * durationHours;
-    } else {
-      // Noleggio giornaliero
-      itemPrice = item.priceDaily * durationDays;
-    }
+    // Usa computeItemPrice per calcolare correttamente il prezzo
+    const { total } = computeItemPrice(contract.startAt, contract.endAt, item.priceHourly, item.priceDaily);
+    let itemPrice = total;
 
     // Aggiungi assicurazione se presente e non pagata in anticipo
     if (item.insurance && item.insuranceFlat && !item.insurancePaidInAdvance) {
@@ -46,12 +34,6 @@ function calculateFinalPrice(contract) {
 
     totalPrice += itemPrice;
   }
-
-  // Aggiungi assicurazione flat del contratto se presente
-  if (contract.insuranceFlat) {
-    totalPrice += contract.insuranceFlat;
-  }
-
   return Math.round(totalPrice * 100) / 100; // Arrotonda a 2 decimali
 }
 
