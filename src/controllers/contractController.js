@@ -23,8 +23,11 @@ function calculateFinalPrice(contract) {
 
   let totalPrice = 0;
 
-  // Calcola il prezzo per ogni item
+  // Calcola il prezzo per ogni item non ancora restituito
   for (const item of contract.items) {
+    // Salta gli item già restituiti
+    if (item.returnedAt) continue;
+
     let itemPrice = 0;
 
     // Determina se usare prezzo orario o giornaliero
@@ -36,8 +39,8 @@ function calculateFinalPrice(contract) {
       itemPrice = item.priceDaily * durationDays;
     }
 
-    // Aggiungi assicurazione se presente
-    if (item.insurance && item.insuranceFlat) {
+    // Aggiungi assicurazione se presente e non pagata in anticipo
+    if (item.insurance && item.insuranceFlat && !item.insurancePaidInAdvance) {
       itemPrice += item.insuranceFlat;
     }
 
@@ -133,20 +136,21 @@ export async function create(req,res){
        
        const b = await Bike.findOne(bikeFilter);
        if(!b) return res.status(400).json({ error: 'Bike not found in this location' });
-       populated.push({ 
-         kind:'bike', 
-         refId:b._id, 
-         kindRef:'Bike', 
-         name:b.name, 
-         barcode:b.barcode, 
-         photoUrl:b.photoUrl, 
-         priceHourly: it.priceHourly || b.priceHourly, // Usa prezzo modificato se presente
-         priceDaily: it.priceDaily || b.priceDaily,   // Usa prezzo modificato se presente
-         originalPriceHourly: b.priceHourly,          // Salva sempre prezzo originale
-         originalPriceDaily: b.priceDaily,            // Salva sempre prezzo originale
-         insurance: !!it.insurance, 
-         insuranceFlat: it.insuranceFlat||0 
-       });
+populated.push({ 
+          kind:'bike', 
+          refId:b._id, 
+          kindRef:'Bike', 
+          name:b.name, 
+          barcode:b.barcode, 
+          photoUrl:b.photoUrl, 
+          priceHourly: it.priceHourly || b.priceHourly, // Usa prezzo modificato se presente
+          priceDaily: it.priceDaily || b.priceDaily,   // Usa prezzo modificato se presente
+          originalPriceHourly: b.priceHourly,          // Salva sempre prezzo originale
+          originalPriceDaily: b.priceDaily,            // Salva sempre prezzo originale
+          insurance: !!it.insurance, 
+          insuranceFlat: it.insuranceFlat||0,
+          insurancePaidInAdvance: !!it.insurancePaidInAdvance
+        });
        await Bike.updateOne({ _id: b._id }, { status: status==='reserved' ? 'reserved' : 'in-use' });
      } else {
        const accessoryFilter = { _id: it.id };
@@ -159,20 +163,21 @@ export async function create(req,res){
        
        const a = await Accessory.findOne(accessoryFilter);
        if(!a) return res.status(400).json({ error: 'Accessory not found in this location' });
-       populated.push({ 
-         kind:'accessory', 
-         refId:a._id, 
-         kindRef:'Accessory', 
-         name:a.name, 
-         barcode:a.barcode, 
-         photoUrl:a.photoUrl, 
-         priceHourly: it.priceHourly || a.priceHourly, // Usa prezzo modificato se presente
-         priceDaily: it.priceDaily || a.priceDaily,   // Usa prezzo modificato se presente
-         originalPriceHourly: a.priceHourly,          // Salva sempre prezzo originale
-         originalPriceDaily: a.priceDaily,            // Salva sempre prezzo originale
-         insurance: !!it.insurance, 
-         insuranceFlat: it.insuranceFlat||0 
-       });
+populated.push({ 
+          kind:'accessory', 
+          refId:a._id, 
+          kindRef:'Accessory', 
+          name:a.name, 
+          barcode:a.barcode, 
+          photoUrl:a.photoUrl, 
+          priceHourly: it.priceHourly || a.priceHourly, // Usa prezzo modificato se presente
+          priceDaily: it.priceDaily || a.priceDaily,   // Usa prezzo modificato se presente
+          originalPriceHourly: a.priceHourly,          // Salva sempre prezzo originale
+          originalPriceDaily: a.priceDaily,            // Salva sempre prezzo originale
+          insurance: !!it.insurance, 
+          insuranceFlat: it.insuranceFlat||0,
+          insurancePaidInAdvance: !!it.insurancePaidInAdvance
+        });
        await Accessory.updateOne({ _id: a._id }, { status: status==='reserved' ? 'reserved' : 'in-use' });
      }
    }
@@ -315,13 +320,14 @@ export async function close(req,res){
   if(!row) return res.status(404).json({ error: 'Not found' });
 
   let subtotal = 0, insurance = 0;
-  
+    
   // Calcola prezzo solo per item non ancora restituiti
   for(const it of row.items){
     if (!it.returnedAt) { // Solo item ancora attivi
       const { total } = computeItemPrice(row.startAt, endAt, it.priceHourly, it.priceDaily);
       subtotal += total;
-      if(it.insurance) insurance += it.insuranceFlat;
+      // Aggiungi assicurazione solo se non è stata pagata in anticipo
+      if(it.insurance && !it.insurancePaidInAdvance) insurance += it.insuranceFlat;
       
       // Libera gli item non ancora restituiti
       if(it.kind === 'bike'){

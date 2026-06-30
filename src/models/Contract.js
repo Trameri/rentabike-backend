@@ -12,6 +12,7 @@ const ContractItemSchema = new mongoose.Schema({
   originalPriceDaily: Number,  // Prezzo giornaliero originale dell'item
   insurance: { type: Boolean, default: false },
   insuranceFlat: { type: Number, default: 0 },
+  insurancePaidInAdvance: { type: Boolean, default: false },
   returnedAt: { type: Date },
   returnNotes: { type: String }
 }, { _id: true }); // Abilita _id per gli item
