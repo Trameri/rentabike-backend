@@ -25,15 +25,9 @@ function calculateFinalPrice(contract) {
 
     // Usa computeItemPrice per calcolare correttamente il prezzo
     const { total } = computeItemPrice(contract.startAt, contract.endAt, item.priceHourly, item.priceDaily);
-    let itemPrice = total;
-
-    // Aggiungi assicurazione se presente e non pagata in anticipo
-    if (item.insurance && item.insuranceFlat && !item.insurancePaidInAdvance) {
-      itemPrice += item.insuranceFlat;
-    }
-
-    totalPrice += itemPrice;
+    totalPrice += total;
   }
+  return Math.round(totalPrice * 100) / 100; // Arrotonda a 2 decimali
   return Math.round(totalPrice * 100) / 100; // Arrotonda a 2 decimali
 }
 
