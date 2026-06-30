@@ -308,7 +308,7 @@ export async function byId(req,res){
 
 export async function close(req,res){
   const { id } = req.params;
-  const { endAt = new Date(), paymentMethod, isPaid, finalPrice, closureNotes } = req.body;
+  const { endAt = new Date(), paymentMethod, isPaid, finalPrice, closureNotes, contractInsurancePaidAdvance } = req.body;
   
   const filter = { _id: id };
   // Non-superadmin possono chiudere solo i loro contratti
@@ -347,14 +347,21 @@ export async function close(req,res){
   row.paid = !!isPaid;
   row.paymentCompleted = !!isPaid; // Aggiungi questo campo per le statistiche
   // Assicurazione esclusa dai calcoli finanziari se pagata in anticipo
-row.finalPrice = finalPrice || subtotal; // Importo effettivamente pagato (assicurazione scontata)
+  row.finalPrice = finalPrice || subtotal; // Importo effettivamente pagato (assicurazione scontata)
   row.finalAmount = finalPrice || subtotal; // Importo effettivamente versato dal cliente
+  if (contractInsurancePaidAdvance !== undefined) {
+    row.contractInsurancePaidAdvance = !!contractInsurancePaidAdvance;
+  }
   // Calcola totalWithInsurance: include assicurazione pagata in anticipo
-   let insurancePaidAmount = 0;
+  let insurancePaidAmount = 0;
   for (const it of row.items) {
     if (it.insurancePaidInAdvance) {
       insurancePaidAmount += it.insuranceFlat || 0;
     }
+  }
+  // Aggiungi assicurazione contratto se pagata in anticipo
+  if (row.contractInsurancePaidAdvance && row.totals && row.totals.insurance) {
+    insurancePaidAmount += row.totals.insurance;
   }
   row.totalWithInsurance = (finalPrice || subtotal) + insurancePaidAmount;
   row.closureNotes = closureNotes || '';
@@ -885,12 +892,21 @@ export async function completePayment(req, res) {
       }
     }
     
+    // Aggiorna contractInsurancePaidAdvance se specificato
+    if (contractInsurancePaidAdvance !== undefined) {
+      contract.contractInsurancePaidAdvance = !!contractInsurancePaidAdvance;
+    }
+    
     // Calcola totalWithInsurance: finalAmount + assicurazione pagata in anticipo
     let insurancePaidAmount = 0;
     for (const item of contract.items) {
       if (item.insurancePaidInAdvance) {
         insurancePaidAmount += item.insuranceFlat || 0;
       }
+    }
+    // Aggiungi assicurazione contratto se pagata in anticipo
+    if (contract.contractInsurancePaidAdvance && contract.totals && contract.totals.insurance) {
+      insurancePaidAmount += contract.totals.insurance;
     }
     contract.totalWithInsurance = (contract.finalAmount || finalAmount || 0) + insurancePaidAmount;
     
