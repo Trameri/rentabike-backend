@@ -41,7 +41,6 @@ const ContractSchema = new mongoose.Schema({
   paymentDate: { type: Date },
   paymentLink: { type: String },
   paymentNotes: { type: String },
-  contractInsurancePaidAdvance: { type: Boolean, default: false }, // Assicurazione contratto pagata in anticipo
   isReservation: { type: Boolean, default: false },
   reservationDate: { type: String },
   wasReserved: { type: Boolean, default: false }, // Traccia se il contratto era originariamente una prenotazione
