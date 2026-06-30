@@ -837,7 +837,7 @@ export const returnItem = async (req, res) => {
 export async function completePayment(req, res) {
   try {
     const { id } = req.params;
-    const { paymentMethod, paymentNotes, finalAmount } = req.body;
+    const { paymentMethod, paymentNotes, finalAmount, itemInsurancePaidAdvance, contractInsurancePaidAdvance } = req.body;
     
     // Trova il contratto
     const filter = { _id: id };
@@ -867,6 +867,25 @@ export async function completePayment(req, res) {
       contract.finalAmount = finalAmount;
     }
     
+    // Aggiorna insurancePaidInAdvance sugli item se specificato
+    if (itemInsurancePaidAdvance) {
+      for (const item of contract.items) {
+        const itemId = item._id ? item._id.toString() : item.refId.toString();
+        if (itemInsurancePaidAdvance[itemId] !== undefined) {
+          item.insurancePaidInAdvance = !!itemInsurancePaidAdvance[itemId];
+        }
+      }
+    }
+    
+    // Calcola totalRevenue: finalAmount + assicurazione pagata in anticipo
+    let insurancePaidAmount = 0;
+    for (const item of contract.items) {
+      if (item.insurancePaidInAdvance) {
+        insurancePaidAmount += item.insuranceFlat || 0;
+      }
+    }
+    contract.totalRevenue = (contract.finalAmount || finalAmount || 0) + insurancePaidAmount;
+    
     // Aggiungi alla cronologia delle modifiche
     contract.modificationHistory.push({
       action: 'payment_completed',
@@ -874,6 +893,7 @@ export async function completePayment(req, res) {
       details: {
         paymentMethod,
         amount: finalAmount || contract.totals.grandTotal,
+        totalRevenue: contract.totalRevenue,
         notes: paymentNotes
       },
       oldValues: { 
@@ -884,7 +904,8 @@ export async function completePayment(req, res) {
         status: 'completed', 
         paymentCompleted: true,
         paymentMethod,
-        paymentDate: new Date()
+        paymentDate: new Date(),
+        totalRevenue: contract.totalRevenue
       }
     });
     
@@ -892,7 +913,6 @@ export async function completePayment(req, res) {
     
     // Aggiorna statistiche giornaliere
     try {
-      const paymentAmount = finalAmount || contract.finalAmount || 0;
       const bikeCount = contract.items.filter(item => item.kind === 'bike').length;
       const accessoryCount = contract.items.filter(item => item.kind === 'accessory').length;
       
@@ -901,13 +921,11 @@ export async function completePayment(req, res) {
       const endTime = new Date(contract.endAt);
       const hours = Math.ceil((endTime - startTime) / (1000 * 60 * 60));
       
-      // Assicurazione esclusa dalle statistiche su richiesta
-      // (non calcoliamo più revenue assicurazioni)
-      
+      // Usa totalRevenue per le statistiche (include assicurazione)
       await updateDailyStats(contract.location, {
         contractCompleted: true,
         payment: {
-          amount: paymentAmount,
+          amount: contract.totalRevenue,
           method: paymentMethod,
           contractId: contract._id,
           notes: paymentNotes
@@ -917,7 +935,6 @@ export async function completePayment(req, res) {
           accessories: accessoryCount,
           hours: hours
         }
-        // Assicurazione esclusa dalle statistiche su richiesta
       });
     } catch (statsError) {
       console.error('Errore aggiornamento statistiche:', statsError);
