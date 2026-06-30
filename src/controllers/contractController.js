@@ -347,10 +347,10 @@ export async function close(req,res){
   row.paid = !!isPaid;
   row.paymentCompleted = !!isPaid; // Aggiungi questo campo per le statistiche
   // Assicurazione esclusa dai calcoli finanziari se pagata in anticipo
-  row.finalPrice = finalPrice || subtotal; // Solo subtotal, senza assicurazione
-  row.finalAmount = finalPrice || subtotal; // Campo prioritario per le statistiche - solo bici
-  // Calcola totalRevenue: include assicurazione pagata in anticipo
-  let insurancePaidAmount = 0;
+row.finalPrice = finalPrice || subtotal; // Importo effettivamente pagato (assicurazione scontata)
+  row.finalAmount = finalPrice || subtotal; // Importo effettivamente versato dal cliente
+  // Calcola totalWithInsurance: include assicurazione pagata in anticipo
+   let insurancePaidAmount = 0;
   for (const it of row.items) {
     if (it.insurancePaidInAdvance) {
       insurancePaidAmount += it.insuranceFlat || 0;
