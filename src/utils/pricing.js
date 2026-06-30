@@ -6,9 +6,9 @@ export function computeItemPrice(startAt, endAt, priceHourly, priceDaily){
   let total = 0;
   if(days > 0){
     total += days * priceDaily;
-    total += Math.min(remHours * priceHourly, priceDaily);
+    total += remHours * priceHourly;
   } else {
-    total += Math.min(hours * priceHourly, priceDaily);
+    total += hours * priceHourly;
   }
   return { hours, total };
 }
