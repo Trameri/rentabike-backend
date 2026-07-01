@@ -16,7 +16,8 @@ import {
   getModificationHistory,
   updateItemPrices,
   completePayment,
-  byDay
+  byDay,
+  lockPrices
 } from '../controllers/contractController.js';
 
 const r = Router();
@@ -43,5 +44,6 @@ r.delete('/:id', requireAdmin, deleteContract); // Elimina contratto (tutti gli 
 r.get('/:id/modifications', getModificationHistory); // Storico modifiche
 r.put('/:contractId/item-prices', requireAdmin, updateItemPrices); // Modifica prezzi item
 r.put('/:contractId/update-item-price', requireAdmin, updateItemPrices); // Alias per compatibilità frontend
+r.post('/:contractId/lock-prices', requireAdmin, lockPrices); // Salva prezzi bloccati
 
 export default r;

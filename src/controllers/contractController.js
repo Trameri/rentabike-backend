@@ -287,7 +287,6 @@ export async function close(req,res){
   const { endAt = new Date(), paymentMethod, isPaid, finalPrice, closureNotes, contractInsurancePaidAdvance } = req.body;
   
   const filter = { _id: id };
-  // Non-superadmin possono chiudere solo i loro contratti
   if(req.user.role !== 'superadmin') {
     filter.location = req.user.locationId;
   }
@@ -297,22 +296,28 @@ export async function close(req,res){
 
   let subtotal = 0, insurance = 0;
     
-  // Calcola prezzo solo per item non ancora restituiti
   for(const it of row.items){
-    if (!it.returnedAt) { // Solo item ancora attivi
-      const { total } = computeItemPrice(row.startAt, endAt, it.priceHourly, it.priceDaily);
-      subtotal += total;
-      // Aggiungi assicurazione solo se non è stata pagata in anticipo
+    if (!it.returnedAt) {
+      const lockedPrice = row.lockedItemPrices?.find(lp => 
+        lp.itemId.toString() === it._id.toString()
+      );
+      
+      if (lockedPrice) {
+        subtotal += lockedPrice.basePrice + (lockedPrice.insurance || 0);
+        insurance += lockedPrice.insurance || 0;
+      } else {
+        const { total } = computeItemPrice(row.startAt, endAt, it.priceHourly, it.priceDaily);
+        subtotal += total;
+      }
+      
       if(it.insurance && !it.insurancePaidInAdvance) insurance += it.insuranceFlat;
       
-      // Libera gli item non ancora restituiti
       if(it.kind === 'bike'){
         await Bike.updateOne({ _id: it.refId }, { status: 'available' });
       } else {
         await Accessory.updateOne({ _id: it.refId }, { status: 'available' });
       }
       
-      // Marca come restituito al momento della chiusura
       it.returnedAt = endAt;
     }
   }
@@ -321,27 +326,30 @@ export async function close(req,res){
   row.status = 'completed';
   row.paymentMethod = paymentMethod || row.paymentMethod;
   row.paid = !!isPaid;
-  row.paymentCompleted = !!isPaid; // Aggiungi questo campo per le statistiche
-  // Assicurazione esclusa dai calcoli finanziari se pagata in anticipo
-  row.finalPrice = finalPrice || subtotal; // Importo effettivamente pagato (assicurazione scontata)
-  row.finalAmount = finalPrice || subtotal; // Importo effettivamente versato dal cliente
+  row.paymentCompleted = !!isPaid;
+  row.finalPrice = finalPrice || subtotal;
+  row.finalAmount = finalPrice || subtotal;
   if (contractInsurancePaidAdvance !== undefined) {
     row.contractInsurancePaidAdvance = !!contractInsurancePaidAdvance;
   }
-  // Calcola totalWithInsurance: include assicurazione pagata in anticipo
+  
   let insurancePaidAmount = 0;
   for (const it of row.items) {
     if (it.insurancePaidInAdvance) {
       insurancePaidAmount += it.insuranceFlat || 0;
     }
   }
-  // Aggiungi assicurazione contratto se pagata in anticipo
   if (row.contractInsurancePaidAdvance && row.totals && row.totals.insurance) {
     insurancePaidAmount += row.totals.insurance;
   }
+  
+  for (const lp of (row.lockedItemPrices || [])) {
+    insurancePaidAmount += lp.insurance || 0;
+  }
+  
   row.totalWithInsurance = (finalPrice || subtotal) + insurancePaidAmount;
   row.closureNotes = closureNotes || '';
-  row.totals = { subtotal, insurance, grandTotal: subtotal }; // grandTotal senza assicurazione
+  row.totals = { subtotal, insurance, grandTotal: subtotal };
   
   await row.save();
   res.json(row);
@@ -763,7 +771,6 @@ export const returnItem = async (req, res) => {
     const { id } = req.params;
     const { itemId, returnedAt, notes } = req.body;
     
-    // Trova il contratto
     const filter = { _id: id };
     if (req.user.role !== 'superadmin') {
       filter.location = req.user.locationId;
@@ -774,7 +781,6 @@ export const returnItem = async (req, res) => {
       return res.status(404).json({ error: 'Contratto non trovato' });
     }
     
-    // Trova l'item nel contratto
     const itemIndex = contract.items.findIndex(item => item._id.toString() === itemId);
     if (itemIndex === -1) {
       return res.status(404).json({ error: 'Item non trovato nel contratto' });
@@ -782,32 +788,25 @@ export const returnItem = async (req, res) => {
     
     const item = contract.items[itemIndex];
     
-    // Controlla se è già stato restituito
     if (item.returnedAt) {
       return res.status(400).json({ error: 'Item già restituito' });
     }
     
-    // Marca l'item come restituito
-    contract.items[itemIndex].returnedAt = returnedAt || new Date();
+    const returnTime = returnedAt || new Date();
+    contract.items[itemIndex].returnedAt = returnTime;
     contract.items[itemIndex].returnNotes = notes || '';
     
-    // Aggiorna lo stato dell'item nel database
     if (item.kind === 'bike') {
       await Bike.updateOne({ _id: item.refId }, { status: 'available' });
     } else {
       await Accessory.updateOne({ _id: item.refId }, { status: 'available' });
     }
     
-    // Controlla se tutti gli item sono stati restituiti
-    const allReturned = contract.items.every(item => item.returnedAt);
+    const allReturned = contract.items.every(it => it.returnedAt);
     
-    // Se tutti gli item sono restituiti, aggiorna lo stato del contratto
     if (allReturned && contract.status === 'in-use') {
-      contract.status = 'returned'; // Restituito ma non ancora pagato/completato
-      contract.endAt = new Date();
-      
-      // Calcola il prezzo finale basato sul tempo effettivo
-      contract.finalAmount = calculateFinalPrice(contract);
+      contract.status = 'returned';
+      contract.endAt = returnTime;
     }
     
     await contract.save();
@@ -856,6 +855,12 @@ export async function completePayment(req, res) {
     // Se specificato un importo finale, aggiornalo
     if (finalAmount !== undefined) {
       contract.finalAmount = finalAmount;
+    } else if (contract.lockedItemPrices && contract.lockedItemPrices.length > 0) {
+      let subtotal = 0;
+      for (const lp of contract.lockedItemPrices) {
+        subtotal += lp.basePrice + (lp.insurance || 0);
+      }
+      contract.finalAmount = Math.round(subtotal * 100) / 100;
     }
     
     // Aggiorna insurancePaidInAdvance sugli item se specificato
@@ -873,14 +878,17 @@ export async function completePayment(req, res) {
       contract.contractInsurancePaidAdvance = !!contractInsurancePaidAdvance;
     }
     
-    // Calcola totalWithInsurance: finalAmount + assicurazione pagata in anticipo
     let insurancePaidAmount = 0;
+    for (const lp of (contract.lockedItemPrices || [])) {
+      insurancePaidAmount += lp.insurance || 0;
+    }
     for (const item of contract.items) {
-      if (item.insurancePaidInAdvance) {
+      if (item.insurancePaidInAdvance && !contract.lockedItemPrices?.some(
+        lp => lp.itemId.toString() === (item._id ? item._id.toString() : item.refId.toString())
+      )) {
         insurancePaidAmount += item.insuranceFlat || 0;
       }
     }
-    // Aggiungi assicurazione contratto se pagata in anticipo
     if (contract.contractInsurancePaidAdvance && contract.totals && contract.totals.insurance) {
       insurancePaidAmount += contract.totals.insurance;
     }
@@ -1129,6 +1137,45 @@ export const getSwapHistory = async (req, res) => {
     
   } catch (error) {
     console.error('Errore recupero storico sostituzioni:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const lockPrices = async (req, res) => {
+  try {
+    const { contractId } = req.params;
+    const { lockedItemPrices } = req.body;
+
+    const filter = { _id: contractId };
+    if (req.user.role !== 'superadmin') {
+      filter.location = req.user.locationId;
+    }
+
+    const contract = await Contract.findOne(filter);
+    if (!contract) {
+      return res.status(404).json({ error: 'Contratto non trovato' });
+    }
+
+    contract.lockedItemPrices = lockedItemPrices || [];
+    contract.lastModifiedBy = getUsername(req.user);
+
+    let subtotal = 0;
+    let insurancePaidAmount = 0;
+    for (const lp of (contract.lockedItemPrices || [])) {
+      subtotal += lp.basePrice + (lp.insurance || 0);
+      insurancePaidAmount += lp.insurance || 0;
+    }
+    contract.finalAmount = Math.round(subtotal * 100) / 100;
+    contract.totalWithInsurance = contract.finalAmount + insurancePaidAmount;
+
+    await contract.save();
+
+    res.json({
+      message: 'Prezzi bloccati salvati con successo',
+      contract
+    });
+  } catch (error) {
+    console.error('Errore salvataggio prezzi bloccati:', error);
     res.status(500).json({ error: error.message });
   }
 };

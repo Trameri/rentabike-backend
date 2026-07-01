@@ -59,6 +59,12 @@ const ContractSchema = new mongoose.Schema({
     reason: String, 
     performedBy: String 
   }],
+  lockedItemPrices: [{
+    itemId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    basePrice: { type: Number, required: true },
+    insurance: { type: Number, default: 0 },
+    lockedAt: { type: Date, default: Date.now }
+  }],
   modificationHistory: [{
     date: { type: Date, default: Date.now },
     action: { type: String, required: true }, // 'created', 'modified', 'cancelled', 'deleted', 'item_swapped'
