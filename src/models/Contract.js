@@ -60,10 +60,10 @@ const ContractSchema = new mongoose.Schema({
     performedBy: String 
   }],
   lockedItemPrices: [{
-    itemId: { type: mongoose.Schema.Types.ObjectId, required: true },
-    basePrice: { type: Number, required: true },
-    insurance: { type: Number, default: 0 },
-    lockedAt: { type: Date, default: Date.now }
+    itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'Item' },
+    basePrice: Number,
+    insurance: Number,
+    lockedAt: Date
   }],
   modificationHistory: [{
     date: { type: Date, default: Date.now },
