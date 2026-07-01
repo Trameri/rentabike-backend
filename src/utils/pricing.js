@@ -1,14 +1,7 @@
 export function computeItemPrice(startAt, endAt, priceHourly, priceDaily){
   const ms = new Date(endAt) - new Date(startAt);
-  const hours = Math.ceil(ms / (1000*60*60));
-  const days = Math.floor(hours / 24);
-  const remHours = hours % 24;
-  let total = 0;
-  if(days > 0){
-    total += days * priceDaily;
-    total += remHours * priceHourly;
-  } else {
-    total += hours * priceHourly;
-  }
-  return { hours, total };
+  const minutes = Math.ceil(ms / (1000*60));
+  const hours = Math.ceil(minutes / 60);
+  const itemPrice = Math.min(hours * priceHourly, priceDaily);
+  return { hours, total: Math.round(itemPrice * 100) / 100 };
 }

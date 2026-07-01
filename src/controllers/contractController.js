@@ -15,20 +15,15 @@ function calculateFinalPrice(contract) {
     return 0;
   }
 
-
   let totalPrice = 0;
 
-  // Calcola il prezzo per ogni item non ancora restituito
   for (const item of contract.items) {
-    // Salta gli item già restituiti
-    if (item.returnedAt) continue;
-
-    // Usa computeItemPrice per calcolare correttamente il prezzo
-    const { total } = computeItemPrice(contract.startAt, contract.endAt, item.priceHourly, item.priceDaily);
+    const start = contract.startAt;
+    const end = item.returnedAt || contract.endAt;
+    const { total } = computeItemPrice(start, end, item.priceHourly, item.priceDaily);
     totalPrice += total;
   }
-  return Math.round(totalPrice * 100) / 100; // Arrotonda a 2 decimali
-  return Math.round(totalPrice * 100) / 100; // Arrotonda a 2 decimali
+return Math.round(totalPrice * 100) / 100;
 }
 
 export async function create(req,res){
@@ -294,30 +289,31 @@ export async function close(req,res){
   const row = await Contract.findOne(filter);
   if(!row) return res.status(404).json({ error: 'Not found' });
 
-  let subtotal = 0, insurance = 0;
-    
+let subtotal = 0, insurance = 0;
+      
   for(const it of row.items){
+    const lockedPrice = row.lockedItemPrices?.find(lp => 
+      lp.itemId.toString() === it._id.toString()
+    );
+
+    if (lockedPrice) {
+      subtotal += lockedPrice.basePrice + (lockedPrice.insurance || 0);
+      insurance += lockedPrice.insurance || 0;
+    } else {
+      const end = it.returnedAt || endAt;
+      const { total } = computeItemPrice(row.startAt, end, it.priceHourly, it.priceDaily);
+      subtotal += total;
+    }
+
+    if(it.insurance && !it.insurancePaidInAdvance) insurance += it.insuranceFlat;
+
+    if(it.kind === 'bike'){
+      await Bike.updateOne({ _id: it.refId }, { status: 'available' });
+    } else {
+      await Accessory.updateOne({ _id: it.refId }, { status: 'available' });
+    }
+
     if (!it.returnedAt) {
-      const lockedPrice = row.lockedItemPrices?.find(lp => 
-        lp.itemId.toString() === it._id.toString()
-      );
-      
-      if (lockedPrice) {
-        subtotal += lockedPrice.basePrice + (lockedPrice.insurance || 0);
-        insurance += lockedPrice.insurance || 0;
-      } else {
-        const { total } = computeItemPrice(row.startAt, endAt, it.priceHourly, it.priceDaily);
-        subtotal += total;
-      }
-      
-      if(it.insurance && !it.insurancePaidInAdvance) insurance += it.insuranceFlat;
-      
-      if(it.kind === 'bike'){
-        await Bike.updateOne({ _id: it.refId }, { status: 'available' });
-      } else {
-        await Accessory.updateOne({ _id: it.refId }, { status: 'available' });
-      }
-      
       it.returnedAt = endAt;
     }
   }
@@ -327,8 +323,8 @@ export async function close(req,res){
   row.paymentMethod = paymentMethod || row.paymentMethod;
   row.paid = !!isPaid;
   row.paymentCompleted = !!isPaid;
-  row.finalPrice = finalPrice || subtotal;
-  row.finalAmount = finalPrice || subtotal;
+  row.finalPrice = finalPrice !== undefined ? finalPrice : Math.round(subtotal * 100) / 100;
+  row.finalAmount = finalPrice !== undefined ? finalPrice : Math.round(subtotal * 100) / 100;
   if (contractInsurancePaidAdvance !== undefined) {
     row.contractInsurancePaidAdvance = !!contractInsurancePaidAdvance;
   }
@@ -347,7 +343,7 @@ export async function close(req,res){
     insurancePaidAmount += lp.insurance || 0;
   }
   
-  row.totalWithInsurance = (finalPrice || subtotal) + insurancePaidAmount;
+  row.totalWithInsurance = (finalPrice !== undefined ? finalPrice : Math.round(subtotal * 100) / 100) + insurancePaidAmount;
   row.closureNotes = closureNotes || '';
   row.totals = { subtotal, insurance, grandTotal: subtotal };
   
@@ -861,6 +857,14 @@ export async function completePayment(req, res) {
         subtotal += lp.basePrice + (lp.insurance || 0);
       }
       contract.finalAmount = Math.round(subtotal * 100) / 100;
+    } else {
+      let subtotal = 0;
+      for (const item of contract.items) {
+        const end = item.returnedAt || contract.endAt;
+        const { total } = computeItemPrice(contract.startAt, end, item.priceHourly, item.priceDaily);
+        subtotal += total;
+      }
+      contract.finalAmount = Math.round(subtotal * 100) / 100;
     }
     
     // Aggiorna insurancePaidInAdvance sugli item se specificato
@@ -892,7 +896,7 @@ export async function completePayment(req, res) {
     if (contract.contractInsurancePaidAdvance && contract.totals && contract.totals.insurance) {
       insurancePaidAmount += contract.totals.insurance;
     }
-    contract.totalWithInsurance = (contract.finalAmount || finalAmount || 0) + insurancePaidAmount;
+    contract.totalWithInsurance = contract.finalAmount + insurancePaidAmount;
     
     // Aggiungi alla cronologia delle modifiche
     contract.modificationHistory.push({
