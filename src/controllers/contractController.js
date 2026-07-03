@@ -279,7 +279,7 @@ export async function byId(req,res){
 
 export async function close(req,res){
   const { id } = req.params;
-  const { endAt = new Date(), paymentMethod, isPaid, finalPrice, closureNotes, contractInsurancePaidAdvance } = req.body;
+  const { endAt = new Date(), paymentMethod, isPaid, finalPrice, closureNotes, insurancePaidInAdvance } = req.body;
   
   const filter = { _id: id };
   if(req.user.role !== 'superadmin') {
@@ -325,8 +325,8 @@ let subtotal = 0, insurance = 0;
   row.paymentCompleted = !!isPaid;
   row.finalPrice = finalPrice !== undefined ? finalPrice : Math.round(subtotal * 100) / 100;
   row.finalAmount = finalPrice !== undefined ? finalPrice : Math.round(subtotal * 100) / 100;
-  if (contractInsurancePaidAdvance !== undefined) {
-    row.contractInsurancePaidAdvance = !!contractInsurancePaidAdvance;
+  if (insurancePaidInAdvance !== undefined) {
+    row.insurancePaidInAdvance = !!insurancePaidInAdvance;
   }
   
   let insurancePaidAmount = 0;
@@ -335,8 +335,8 @@ let subtotal = 0, insurance = 0;
       insurancePaidAmount += it.insuranceFlat || 0;
     }
   }
-  if (row.contractInsurancePaidAdvance && row.totals && row.totals.insurance) {
-    insurancePaidAmount += row.totals.insurance;
+  if (row.insurancePaidInAdvance && row.totals && row.totals.insuranceTotal) {
+    insurancePaidAmount += row.totals.insuranceTotal;
   }
   
   for (const lp of (row.lockedItemPrices || [])) {
@@ -345,7 +345,7 @@ let subtotal = 0, insurance = 0;
   
   row.totalWithInsurance = (finalPrice !== undefined ? finalPrice : Math.round(subtotal * 100) / 100) + insurancePaidAmount;
   row.closureNotes = closureNotes || '';
-  row.totals = { subtotal, insurance, grandTotal: subtotal };
+  row.totals = { bikesTotal: subtotal, insuranceTotal: insurance, extrasTotal: 0, grandTotal: subtotal + insurance };
   
   await row.save();
   res.json(row);
@@ -823,7 +823,15 @@ export const returnItem = async (req, res) => {
 export async function completePayment(req, res) {
   try {
     const { id } = req.params;
-    const { paymentMethod, paymentNotes, finalAmount, itemInsurancePaidAdvance, contractInsurancePaidAdvance } = req.body;
+    const { 
+      paymentMethod, 
+      paymentNotes, 
+      finalAmount, 
+      totals, 
+      totalWithInsurance, 
+      insurancePaidInAdvance, 
+      itemInsurancePaidAdvance 
+    } = req.body;
     
     // Trova il contratto
     const filter = { _id: id };
@@ -867,6 +875,21 @@ export async function completePayment(req, res) {
       contract.finalAmount = Math.round(subtotal * 100) / 100;
     }
     
+    // Salva totals se specificato
+    if (totals) {
+      contract.totals = {
+        bikesTotal: totals.bikesTotal ?? 0,
+        insuranceTotal: totals.insuranceTotal ?? 0,
+        extrasTotal: totals.extrasTotal ?? 0,
+        grandTotal: totals.grandTotal ?? 0
+      };
+    }
+    
+    // Salva totalWithInsurance se specificato, altrimenti calcolalo
+    if (totalWithInsurance !== undefined) {
+      contract.totalWithInsurance = totalWithInsurance;
+    }
+    
     // Aggiorna insurancePaidInAdvance sugli item se specificato
     if (itemInsurancePaidAdvance) {
       for (const item of contract.items) {
@@ -877,9 +900,9 @@ export async function completePayment(req, res) {
       }
     }
     
-    // Aggiorna contractInsurancePaidAdvance se specificato
-    if (contractInsurancePaidAdvance !== undefined) {
-      contract.contractInsurancePaidAdvance = !!contractInsurancePaidAdvance;
+    // Aggiorna insurancePaidInAdvance a livello contratto se specificato
+    if (insurancePaidInAdvance !== undefined) {
+      contract.insurancePaidInAdvance = !!insurancePaidInAdvance;
     }
     
     let insurancePaidAmount = 0;
@@ -893,10 +916,13 @@ export async function completePayment(req, res) {
         insurancePaidAmount += item.insuranceFlat || 0;
       }
     }
-    if (contract.contractInsurancePaidAdvance && contract.totals && contract.totals.insurance) {
-      insurancePaidAmount += contract.totals.insurance;
+    if (contract.insurancePaidInAdvance && contract.totals && contract.totals.insuranceTotal) {
+      insurancePaidAmount += contract.totals.insuranceTotal;
     }
-    contract.totalWithInsurance = contract.finalAmount + insurancePaidAmount;
+    
+    if (contract.totalWithInsurance === undefined || contract.totalWithInsurance === null) {
+      contract.totalWithInsurance = contract.finalAmount + insurancePaidAmount;
+    }
     
     // Aggiungi alla cronologia delle modifiche
     contract.modificationHistory.push({
@@ -904,7 +930,7 @@ export async function completePayment(req, res) {
       performedBy: req.user.username,
       details: {
         paymentMethod,
-        amount: finalAmount || contract.totals.grandTotal,
+        amount: finalAmount || contract.totals?.grandTotal,
         totalWithInsurance: contract.totalWithInsurance,
         notes: paymentNotes
       },

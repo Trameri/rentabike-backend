@@ -16,7 +16,7 @@ async function fixFinalAmounts() {
   let updated = 0;
   for (const contract of contracts) {
     const oldFinalAmount = contract.finalAmount;
-    const subtotal = contract.totals?.subtotal;
+    const subtotal = contract.totals?.bikesTotal ?? contract.totals?.subtotal;
     
     if (subtotal !== undefined && subtotal !== null) {
       // Aggiorna finalAmount per usare solo subtotal (senza assicurazione)
@@ -32,7 +32,7 @@ async function fixFinalAmounts() {
       
       console.log(`✅ Contratto ${contract._id}: ${oldFinalAmount} → ${subtotal}`);
     } else {
-      console.log(`⚠️ Contratto ${contract._id}: subtotal non trovato`);
+      console.log(`⚠️ Contratto ${contract._id}: bikesTotal/subtotal non trovato`);
     }
   }
 

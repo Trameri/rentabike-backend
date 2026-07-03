@@ -105,7 +105,7 @@ const testCompleteSystem = async () => {
         if (contract.finalAmount !== undefined && contract.finalAmount !== null) {
           contractTotal = contract.finalAmount;
         } else if (contract.totals?.grandTotal) {
-          contractTotal = contract.totals.grandTotal;
+          contractTotal = Math.min(contractTotal, contract.totals.grandTotal);
         }
         return sum + contractTotal;
       }, 0);

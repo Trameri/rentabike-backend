@@ -85,13 +85,16 @@ export async function summary(req,res){
   
   // Calcola il totale usando finalAmount (prezzo bloccato) o calcolo dinamico
   total = filteredRows.reduce((s, r) => {
-    // Priorità: finalAmount (prezzo bloccato) > totals.subtotal > calcolo dinamico
+    // Priorità: finalAmount (prezzo bloccato) > totals.bikesTotal > calcolo dinamico
     let contractTotal = 0;
     
     if (r.finalAmount !== undefined && r.finalAmount !== null) {
       contractTotal = r.finalAmount;
+    } else if (r.totals?.bikesTotal !== undefined) {
+      // Usa sempre bikesTotal (senza assicurazione) invece di grandTotal
+      contractTotal = r.totals.bikesTotal;
     } else if (r.totals?.subtotal !== undefined) {
-      // Usa sempre subtotal (senza assicurazione) invece di grandTotal
+      // Fallback per contratti legacy con struttura totals precedente
       contractTotal = r.totals.subtotal;
     } else {
       // Calcolo dinamico se non c'è finalAmount
@@ -176,13 +179,16 @@ export async function superadminStats(req,res){
     };
     const contracts = await Contract.find(filter).select('totals finalAmount createdAt items startAt endAt insuranceFlat').lean();
     const total = contracts.reduce((s, r) => {
-      // Priorità: finalAmount (prezzo bloccato) > totals.grandTotal > calcolo dinamico
+      // Priorità: finalAmount (prezzo bloccato) > totals.bikesTotal > calcolo dinamico
       let contractTotal = 0;
       
       if (r.finalAmount !== undefined && r.finalAmount !== null) {
         contractTotal = r.finalAmount;
-      } else if (r.totals?.subtotal) {
-        // Usa sempre subtotal (senza assicurazione) invece di grandTotal
+      } else if (r.totals?.bikesTotal !== undefined) {
+        // Usa sempre bikesTotal (senza assicurazione) invece di grandTotal
+        contractTotal = r.totals.bikesTotal;
+      } else if (r.totals?.subtotal !== undefined) {
+        // Fallback per contratti legacy con struttura totals precedente
         contractTotal = r.totals.subtotal;
       } else {
         // Calcolo dinamico se non c'è finalAmount
@@ -265,13 +271,16 @@ export async function detailedStats(req, res) {
   let totalDuration = 0;
   
   contracts.forEach(contract => {
-    // Priorità: finalAmount (prezzo bloccato) > totals.grandTotal > calcolo dinamico
+    // Priorità: finalAmount (prezzo bloccato) > totals.bikesTotal > calcolo dinamico
     let total = 0;
     
     if (contract.finalAmount !== undefined && contract.finalAmount !== null) {
       total = contract.finalAmount;
-    } else if (contract.totals?.subtotal) {
-      // Usa sempre subtotal (senza assicurazione) invece di grandTotal
+    } else if (contract.totals?.bikesTotal !== undefined) {
+      // Usa sempre bikesTotal (senza assicurazione) invece di grandTotal
+      total = contract.totals.bikesTotal;
+    } else if (contract.totals?.subtotal !== undefined) {
+      // Fallback per contratti legacy con struttura totals precedente
       total = contract.totals.subtotal;
     } else {
       // Calcolo dinamico se non c'è finalAmount
@@ -406,7 +415,10 @@ export async function revenueByDay(req, res) {
     if (contract.finalAmount !== undefined && contract.finalAmount !== null) {
       contractTotal = contract.finalAmount;
     } else if (contract.totals?.grandTotal) {
-      contractTotal = contract.totals.grandTotal;
+      const bikesTotal = contract.totals?.bikesTotal ?? contract.totals?.subtotal ?? 0;
+      contractTotal = Math.min(contractTotal || bikesTotal, contract.totals.grandTotal);
+    } else if (contract.totals?.bikesTotal) {
+      contractTotal = contract.totals.bikesTotal;
     } else {
       // Calcolo dinamico se non c'è finalAmount
       contractTotal = calculateContractTotal(contract);

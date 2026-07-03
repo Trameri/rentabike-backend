@@ -50,7 +50,13 @@ const ContractSchema = new mongoose.Schema({
   totalWithInsurance: { type: Number }, // Totale contratto completo (inclusa assicurazione)
   closureNotes: { type: String },
   notes: String,
-  totals: { subtotal: { type: Number, default: 0 }, insurance: { type: Number, default: 0 }, grandTotal: { type: Number, default: 0 } },
+  totals: {
+    bikesTotal: { type: Number, default: 0 },
+    insuranceTotal: { type: Number, default: 0 },
+    extrasTotal: { type: Number, default: 0 },
+    grandTotal: { type: Number, default: 0 }
+  },
+  insurancePaidInAdvance: { type: Boolean, default: false },
   reservationPrepaid: { type: Boolean, default: false },
   swapHistory: [{ 
     date: Date, 
