@@ -1,6 +1,7 @@
 import Bike from '../models/Bike.js';
 import Accessory from '../models/Accessory.js';
 import Contract from '../models/Contract.js';
+import DailyStats from '../models/DailyStats.js';
 import { computeItemPrice } from '../utils/pricing.js';
 import { updateDailyStats } from '../utils/statsHelper.js';
 
@@ -741,13 +742,53 @@ export const deleteContract = async (req, res) => {
     
     await contract.save();
     
-    // Log per tracciabilità
+// Log per tracciabilità
     console.log(`🗑️ Contratto ${id} eliminato da ${getUsername(req.user)} - Motivo: ${reason || 'Non specificato'}`);
-    
+
+    // Rimuovi i dati di statistiche associate al contratto eliminato (solo se era completato)
+    if (contract.status === 'completed' || contract.status === 'returned') {
+      const contractDate = contract.createdAt;
+      const startOfDay = new Date(contractDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(contractDate);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      // Calcola l'importo da rimuovere
+      const contractTotal = contract.finalAmount || contract.totals?.grandTotal || contract.totals?.bikesTotal || 0;
+
+      // Costruisci l'update per il revenue
+      const revenueUpdate = { $inc: { 'revenue.total': -contractTotal } };
+
+      // Aggiorna il metodo di pagamento corretto
+      switch (contract.paymentMethod) {
+        case 'cash': revenueUpdate.$inc['revenue.cash'] = -contractTotal; break;
+        case 'card': revenueUpdate.$inc['revenue.card'] = -contractTotal; break;
+        case 'bank_transfer': revenueUpdate.$inc['revenue.bank'] = -contractTotal; break;
+        case 'paypal': revenueUpdate.$inc['revenue.paypal'] = -contractTotal; break;
+        case 'stripe': revenueUpdate.$inc['revenue.other'] = -contractTotal; break;
+        default: revenueUpdate.$inc['revenue.other'] = -contractTotal;
+      }
+
+      // Aggiorna contratti completati
+      if (contract.status === 'completed') {
+        revenueUpdate.$inc['contracts.completed'] = -1;
+      } else if (contract.status === 'returned') {
+        revenueUpdate.$inc['contracts.returned'] = -1;
+      }
+
+      await DailyStats.updateMany(
+        { location: contract.location },
+        {
+          $pull: { payments: { contractId: id } },
+          ...revenueUpdate
+        }
+      );
+    }
+
     // Elimina il contratto
     await Contract.deleteOne({ _id: id });
-    
-    res.json({ 
+
+    res.json({
       message: 'Contratto eliminato con successo',
       deletedContract: {
         id: contract._id,
