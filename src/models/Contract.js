@@ -14,7 +14,8 @@ const ContractItemSchema = new mongoose.Schema({
   insuranceFlat: { type: Number, default: 0 },
   insurancePaidInAdvance: { type: Boolean, default: false },
   returnedAt: { type: Date },
-  returnNotes: { type: String }
+  returnNotes: { type: String },
+  rentalPrice: { type: Number }
 }, { _id: true }); // Abilita _id per gli item
 
 const ContractSchema = new mongoose.Schema({

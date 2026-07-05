@@ -280,44 +280,64 @@ export async function byId(req,res){
 
 export async function close(req,res){
    const { id } = req.params;
-   const { endAt = new Date(), paymentMethod, isPaid, finalPrice, closureNotes, insurancePaidInAdvance } = req.body;
-   
-   const filter = { _id: id };
-   if(req.user.role !== 'superadmin') {
-     filter.location = req.user.locationId;
-   }
-   
-   const row = await Contract.findOne(filter);
-   if(!row) return res.status(404).json({ error: 'Not found' });
+   const { endAt = new Date(), paymentMethod, isPaid, finalPrice, closureNotes, insurancePaidInAdvance, itemPrices, adjustedItems } = req.body;
+    
+    const filter = { _id: id };
+    if(req.user.role !== 'superadmin') {
+      filter.location = req.user.locationId;
+    }
+    
+    const row = await Contract.findOne(filter);
+    if(!row) return res.status(404).json({ error: 'Not found' });
 
-   let subtotal = 0, insurance = 0;
-       
-   for(const it of row.items){
-     const lockedPrice = row.lockedItemPrices?.find(lp => 
-       lp.itemId.toString() === it._id.toString()
-     );
+    let subtotal = 0, insurance = 0;
 
-     if (lockedPrice) {
-       subtotal += lockedPrice.basePrice + (lockedPrice.insurance || 0);
-       insurance += lockedPrice.insurance || 0;
-     } else {
-       const end = it.returnedAt || endAt;
-       const { total } = computeItemPrice(row.startAt, end, it.priceHourly, it.priceDaily);
-       subtotal += total;
-     }
+    for(const it of row.items){
+      const itemIdStr = it._id.toString();
 
-     if(it.insurance && !it.insurancePaidInAdvance) insurance += it.insuranceFlat;
+      if (adjustedItems && Array.isArray(adjustedItems)) {
+        const adjusted = adjustedItems.find(ai => (ai.itemId || ai._id).toString() === itemIdStr);
+        if (adjusted && adjusted.rentalPrice !== undefined) {
+          it.rentalPrice = adjusted.rentalPrice;
+        }
+      }
 
-     if(it.kind === 'bike'){
-       await Bike.updateOne({ _id: it.refId }, { status: 'available' });
-     } else {
-       await Accessory.updateOne({ _id: it.refId }, { status: 'available' });
-     }
+      if (it.rentalPrice === undefined && itemPrices && Array.isArray(itemPrices)) {
+        const priced = itemPrices.find(ip => ip.itemId.toString() === itemIdStr);
+        if (priced && priced.price !== undefined) {
+          it.rentalPrice = priced.price;
+        }
+      }
 
-     if (!it.returnedAt) {
-       it.returnedAt = endAt;
-     }
-   }
+      if (it.rentalPrice === undefined) {
+        const lockedPrice = row.lockedItemPrices?.find(lp => 
+          lp.itemId.toString() === itemIdStr
+        );
+        if (lockedPrice) {
+          it.rentalPrice = lockedPrice.basePrice;
+        }
+      }
+
+      if (it.rentalPrice !== undefined) {
+        subtotal += it.rentalPrice;
+      } else {
+        const end = it.returnedAt || endAt;
+        const { total } = computeItemPrice(row.startAt, end, it.priceHourly, it.priceDaily);
+        subtotal += total;
+      }
+
+      if(it.insurance && !it.insurancePaidInAdvance) insurance += it.insuranceFlat;
+
+      if(it.kind === 'bike'){
+        await Bike.updateOne({ _id: it.refId }, { status: 'available' });
+      } else {
+        await Accessory.updateOne({ _id: it.refId }, { status: 'available' });
+      }
+
+      if (!it.returnedAt) {
+        it.returnedAt = endAt;
+      }
+    }
    
    row.endAt = endAt;
    // Se il contratto viene chiuso senza pagamento (isPaid=false), va in 'returned' (attivo)
@@ -888,7 +908,9 @@ export async function completePayment(req, res) {
       totals, 
       totalWithInsurance, 
       insurancePaidInAdvance, 
-      itemInsurancePaidAdvance 
+      itemInsurancePaidAdvance,
+      itemPrices,
+      adjustedItems
     } = req.body;
     
     // Trova il contratto
@@ -905,6 +927,33 @@ export async function completePayment(req, res) {
     // Verifica che il contratto sia in stato "returned"
     if (contract.status !== 'returned') {
       return res.status(400).json({ error: 'Il contratto deve essere in stato "restituito" per completare il pagamento' });
+    }
+
+    for (const it of contract.items) {
+      const itemIdStr = it._id.toString();
+
+      if (adjustedItems && Array.isArray(adjustedItems)) {
+        const adjusted = adjustedItems.find(ai => (ai.itemId || ai._id).toString() === itemIdStr);
+        if (adjusted && adjusted.rentalPrice !== undefined) {
+          it.rentalPrice = adjusted.rentalPrice;
+        }
+      }
+
+      if (it.rentalPrice === undefined && itemPrices && Array.isArray(itemPrices)) {
+        const priced = itemPrices.find(ip => ip.itemId.toString() === itemIdStr);
+        if (priced && priced.price !== undefined) {
+          it.rentalPrice = priced.price;
+        }
+      }
+
+      if (it.rentalPrice === undefined) {
+        const lockedPrice = contract.lockedItemPrices?.find(lp => 
+          lp.itemId.toString() === itemIdStr
+        );
+        if (lockedPrice) {
+          it.rentalPrice = lockedPrice.basePrice;
+        }
+      }
     }
     
     // Aggiorna i dati di pagamento
@@ -926,9 +975,13 @@ export async function completePayment(req, res) {
     } else {
       let subtotal = 0;
       for (const item of contract.items) {
-        const end = item.returnedAt || contract.endAt;
-        const { total } = computeItemPrice(contract.startAt, end, item.priceHourly, item.priceDaily);
-        subtotal += total;
+        if (item.rentalPrice !== undefined) {
+          subtotal += item.rentalPrice;
+        } else {
+          const end = item.returnedAt || contract.endAt;
+          const { total } = computeItemPrice(contract.startAt, end, item.priceHourly, item.priceDaily);
+          subtotal += total;
+        }
       }
       contract.finalAmount = Math.round(subtotal * 100) / 100;
     }
