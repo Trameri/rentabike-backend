@@ -35,14 +35,11 @@ function calculateContractTotal(contract) {
 }
 
 export async function summary(req, res) {
-  try {
-    const { from, to, location, type } = req.query;
-    const filter = {
-      $or: [
-        { status: 'completed' },
-        { status: 'returned', paymentCompleted: true }
-      ]
-    };
+   try {
+     const { from, to, location, type } = req.query;
+     const filter = {
+       status: 'completed'
+     };
 
     if (req.user.role !== 'superadmin') {
       filter.location = req.user.locationId;
@@ -164,14 +161,11 @@ export async function superadminStats(req, res) {
 
   const locationStats = [];
   for (const location of locations) {
-    const filter = {
-      location: location._id,
-      $or: [
-        { status: 'completed' },
-        { status: 'returned', paymentCompleted: true }
-      ],
-      ...dateFilter
-    };
+const filter = {
+       location: location._id,
+       status: 'completed',
+       ...dateFilter
+     };
     const contracts = await Contract.find(filter).select('totals finalAmount createdAt items startAt endAt insuranceFlat').lean();
     const total = contracts.reduce((s, r) => {
       let contractTotal = 0;
@@ -222,13 +216,10 @@ export async function superadminStats(req, res) {
 }
 
 export async function detailedStats(req, res) {
-  const { from, to } = req.query;
-  const filter = {
-    $or: [
-      { status: 'completed' },
-      { status: 'returned', paymentCompleted: true }
-    ]
-  };
+   const { from, to } = req.query;
+   const filter = {
+     status: 'completed'
+   };
 
   if (req.user.role !== 'superadmin') {
     filter.location = req.user.locationId;
@@ -320,13 +311,10 @@ export async function detailedStats(req, res) {
 }
 
 export async function topBikes(req, res) {
-  const { from, to, limit = 10 } = req.query;
-  const filter = {
-    $or: [
-      { status: 'completed' },
-      { status: 'returned', paymentCompleted: true }
-    ]
-  };
+   const { from, to, limit = 10 } = req.query;
+   const filter = {
+     status: 'completed'
+   };
 
   if (req.user.role !== 'superadmin') {
     filter.location = req.user.locationId;
@@ -368,13 +356,10 @@ export async function topBikes(req, res) {
 }
 
 export async function revenueByDay(req, res) {
-  const { from, to } = req.query;
-  const filter = {
-    $or: [
-      { status: 'completed' },
-      { status: 'returned', paymentCompleted: true }
-    ]
-  };
+   const { from, to } = req.query;
+   const filter = {
+     status: 'completed'
+   };
 
   if (req.user.role !== 'superadmin') {
     filter.location = req.user.locationId;

@@ -279,95 +279,112 @@ export async function byId(req,res){
 }
 
 export async function close(req,res){
-  const { id } = req.params;
-  const { endAt = new Date(), paymentMethod, isPaid, finalPrice, closureNotes, insurancePaidInAdvance } = req.body;
-  
-  const filter = { _id: id };
-  if(req.user.role !== 'superadmin') {
-    filter.location = req.user.locationId;
-  }
-  
-  const row = await Contract.findOne(filter);
-  if(!row) return res.status(404).json({ error: 'Not found' });
+   const { id } = req.params;
+   const { endAt = new Date(), paymentMethod, isPaid, finalPrice, closureNotes, insurancePaidInAdvance } = req.body;
+   
+   const filter = { _id: id };
+   if(req.user.role !== 'superadmin') {
+     filter.location = req.user.locationId;
+   }
+   
+   const row = await Contract.findOne(filter);
+   if(!row) return res.status(404).json({ error: 'Not found' });
 
-let subtotal = 0, insurance = 0;
-      
-  for(const it of row.items){
-    const lockedPrice = row.lockedItemPrices?.find(lp => 
-      lp.itemId.toString() === it._id.toString()
-    );
+   let subtotal = 0, insurance = 0;
+       
+   for(const it of row.items){
+     const lockedPrice = row.lockedItemPrices?.find(lp => 
+       lp.itemId.toString() === it._id.toString()
+     );
 
-    if (lockedPrice) {
-      subtotal += lockedPrice.basePrice + (lockedPrice.insurance || 0);
-      insurance += lockedPrice.insurance || 0;
-    } else {
-      const end = it.returnedAt || endAt;
-      const { total } = computeItemPrice(row.startAt, end, it.priceHourly, it.priceDaily);
-      subtotal += total;
-    }
+     if (lockedPrice) {
+       subtotal += lockedPrice.basePrice + (lockedPrice.insurance || 0);
+       insurance += lockedPrice.insurance || 0;
+     } else {
+       const end = it.returnedAt || endAt;
+       const { total } = computeItemPrice(row.startAt, end, it.priceHourly, it.priceDaily);
+       subtotal += total;
+     }
 
-    if(it.insurance && !it.insurancePaidInAdvance) insurance += it.insuranceFlat;
+     if(it.insurance && !it.insurancePaidInAdvance) insurance += it.insuranceFlat;
 
-    if(it.kind === 'bike'){
-      await Bike.updateOne({ _id: it.refId }, { status: 'available' });
-    } else {
-      await Accessory.updateOne({ _id: it.refId }, { status: 'available' });
-    }
+     if(it.kind === 'bike'){
+       await Bike.updateOne({ _id: it.refId }, { status: 'available' });
+     } else {
+       await Accessory.updateOne({ _id: it.refId }, { status: 'available' });
+     }
 
-    if (!it.returnedAt) {
-      it.returnedAt = endAt;
-    }
-  }
-  
-  row.endAt = endAt;
-  row.status = 'completed';
-  row.paymentMethod = paymentMethod || row.paymentMethod;
-  row.paid = !!isPaid;
-  row.paymentCompleted = !!isPaid;
-  row.finalPrice = finalPrice !== undefined ? finalPrice : Math.round(subtotal * 100) / 100;
-  row.finalAmount = finalPrice !== undefined ? finalPrice : Math.round(subtotal * 100) / 100;
-  if (insurancePaidInAdvance !== undefined) {
-    row.insurancePaidInAdvance = !!insurancePaidInAdvance;
-  }
-  
-  let insurancePaidAmount = 0;
-  for (const it of row.items) {
-    if (it.insurancePaidInAdvance) {
-      insurancePaidAmount += it.insuranceFlat || 0;
-    }
-  }
-  if (row.insurancePaidInAdvance && row.totals && row.totals.insuranceTotal) {
-    insurancePaidAmount += row.totals.insuranceTotal;
-  }
-  
-  for (const lp of (row.lockedItemPrices || [])) {
-    insurancePaidAmount += lp.insurance || 0;
-  }
-  
-  row.totalWithInsurance = (finalPrice !== undefined ? finalPrice : Math.round(subtotal * 100) / 100) + insurancePaidAmount;
-  row.closureNotes = closureNotes || '';
-  row.totals = { bikesTotal: subtotal, insuranceTotal: insurance, extrasTotal: 0, grandTotal: subtotal + insurance };
-  
-  await row.save();
-  res.json(row);
-}
+     if (!it.returnedAt) {
+       it.returnedAt = endAt;
+     }
+   }
+   
+   row.endAt = endAt;
+   // Se il contratto viene chiuso senza pagamento (isPaid=false), va in 'returned' (attivo)
+   // Se invece viene chiuso con pagamento (isPaid=true), va in 'completed' (chiuso/fatturato)
+   if (isPaid) {
+     row.status = 'completed';
+     row.paymentMethod = paymentMethod || row.paymentMethod;
+     row.paid = true;
+     row.paymentCompleted = true;
+     row.finalPrice = finalPrice !== undefined ? finalPrice : Math.round(subtotal * 100) / 100;
+     row.finalAmount = finalPrice !== undefined ? finalPrice : Math.round(subtotal * 100) / 100;
+   } else {
+     row.status = 'returned';
+     row.paymentCompleted = false;
+   }
+   if (insurancePaidInAdvance !== undefined) {
+     row.insurancePaidInAdvance = !!insurancePaidInAdvance;
+   }
+   
+   let insurancePaidAmount = 0;
+   for (const it of row.items) {
+     if (it.insurancePaidInAdvance) {
+       insurancePaidAmount += it.insuranceFlat || 0;
+     }
+   }
+   if (row.insurancePaidInAdvance && row.totals && row.totals.insuranceTotal) {
+     insurancePaidAmount += row.totals.insuranceTotal;
+   }
+   
+   for (const lp of (row.lockedItemPrices || [])) {
+     insurancePaidAmount += lp.insurance || 0;
+   }
+   
+   // Calcola totalWithInsurance solo se il contratto è completed
+   if (isPaid) {
+     row.totalWithInsurance = (finalPrice !== undefined ? finalPrice : Math.round(subtotal * 100) / 100) + insurancePaidAmount;
+   }
+   row.closureNotes = closureNotes || '';
+   row.totals = { bikesTotal: subtotal, insuranceTotal: insurance, extrasTotal: 0, grandTotal: subtotal + insurance };
+   
+   await row.save();
+   res.json(row);
+ }
 
 export async function activeByBarcode(req,res){
-  const { code } = req.params;
-  const filter = {
-    status: { $in: ['in-use','reserved'] },
-    'items.barcode': code
-  };
-  
-  // Non-superadmin possono cercare solo nei loro contratti
-  if(req.user.role !== 'superadmin') {
-    filter.location = req.user.locationId;
-  }
-  
-  const row = await Contract.findOne(filter).populate('location').sort({ createdAt: -1 });
-  if(!row) return res.status(404).json({ error: 'No active contract for this item' });
-  res.json(row);
-}
+   const { code } = req.params;
+   const filter = {
+     status: { $in: ['in-use','reserved','returned'] },
+     'items.barcode': code
+   };
+   
+   // Non-superadmin possono cercare solo nei loro contratti
+   if(req.user.role !== 'superadmin') {
+     filter.location = req.user.locationId;
+   }
+   
+   // Se status è 'returned', verifica che paymentCompleted sia false (contratto attivo)
+   const row = await Contract.findOne({
+     ...filter,
+     $or: [
+       { status: { $in: ['in-use','reserved'] } },
+       { status: 'returned', paymentCompleted: false }
+     ]
+   }).populate('location').sort({ createdAt: -1 });
+   if(!row) return res.status(404).json({ error: 'No active contract for this item' });
+   res.json(row);
+ }
 
 export async function history(req, res) {
   const { customer, barcode, dateFrom, dateTo, status, location } = req.query;
