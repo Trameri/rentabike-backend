@@ -322,7 +322,8 @@ export async function close(req,res){
         subtotal += it.rentalPrice;
       } else {
         const end = it.returnedAt || endAt;
-        const { total } = computeItemPrice(row.startAt, end, it.priceHourly, it.priceDaily);
+        const { total } = computeItemPrice(row.startAt, end, it.originalPriceHourly || it.priceHourly, it.originalPriceDaily || it.priceDaily);
+        it.rentalPrice = total;
         subtotal += total;
       }
 
@@ -375,12 +376,25 @@ export async function close(req,res){
    if (isPaid) {
      row.totalWithInsurance = (finalPrice !== undefined ? finalPrice : Math.round(subtotal * 100) / 100) + insurancePaidAmount;
    }
-   row.closureNotes = closureNotes || '';
-   row.totals = { bikesTotal: subtotal, insuranceTotal: insurance, extrasTotal: 0, grandTotal: subtotal + insurance };
-   
-   await row.save();
-   res.json(row);
- }
+    row.closureNotes = closureNotes || '';
+    row.totals = { bikesTotal: subtotal, insuranceTotal: insurance, extrasTotal: 0, grandTotal: subtotal + insurance };
+    
+    await row.save();
+
+    for (const it of row.items) {
+      if (it.kind === 'bike' && it.refId) {
+        const end = it.returnedAt || endAt;
+        const durationMs = end - row.startAt;
+        const durationHours = Math.max(0, durationMs / (1000 * 60 * 60));
+        await Bike.updateOne(
+          { _id: it.refId },
+          { $inc: { totalRevenue: it.rentalPrice || 0, totalRentals: 1, totalHours: durationHours } }
+        );
+      }
+    }
+
+    res.json(row);
+  }
 
 export async function activeByBarcode(req,res){
    const { code } = req.params;
@@ -518,9 +532,16 @@ export const swapBike = async (req, res) => {
       return res.status(404).json({ error: 'Vecchia bici non trovata' });
     }
 
-    // Esegui lo scambio
-    // 1. Aggiorna lo stato delle bici
+    const oldItem = contract.items[oldBikeIndex];
+    const swapDate = new Date();
+    const { total: oldBikePartialPrice } = computeItemPrice(contract.startAt, swapDate, oldItem.priceHourly || 0, oldItem.priceDaily || 0);
+    const oldBikeDurationHours = Math.max(1, Math.ceil((swapDate - new Date(contract.startAt)) / (1000 * 60 * 60)));
+
+    oldBike.totalRevenue = (oldBike.totalRevenue || 0) + oldBikePartialPrice;
+    oldBike.totalRentals = (oldBike.totalRentals || 0) + 1;
+    oldBike.totalHours = (oldBike.totalHours || 0) + oldBikeDurationHours;
     oldBike.status = 'available';
+    
     newBike.status = contract.status === 'reserved' ? 'reserved' : 'in-use';
     
     await oldBike.save();
@@ -955,6 +976,22 @@ export async function completePayment(req, res) {
         }
       }
     }
+
+    // Assicura che tutti gli item abbiano un rentalPrice calcolato dai prezzi reali del contratto
+    for (const it of contract.items) {
+      if (it.rentalPrice === undefined) {
+        const lockedPrice = contract.lockedItemPrices?.find(lp => 
+          lp.itemId.toString() === it._id.toString()
+        );
+        if (lockedPrice) {
+          it.rentalPrice = lockedPrice.basePrice;
+        } else {
+          const end = it.returnedAt || contract.endAt;
+          const { total } = computeItemPrice(contract.startAt, end, it.originalPriceHourly || it.priceHourly, it.originalPriceDaily || it.priceDaily);
+          it.rentalPrice = total;
+        }
+      }
+    }
     
     // Aggiorna i dati di pagamento
     contract.paymentMethod = paymentMethod;
@@ -963,28 +1000,16 @@ export async function completePayment(req, res) {
     contract.paymentNotes = paymentNotes || '';
     contract.status = 'completed';
     
-    // Se specificato un importo finale, aggiornalo
-    if (finalAmount !== undefined) {
-      contract.finalAmount = finalAmount;
-    } else if (contract.lockedItemPrices && contract.lockedItemPrices.length > 0) {
-      let subtotal = 0;
-      for (const lp of contract.lockedItemPrices) {
-        subtotal += lp.basePrice + (lp.insurance || 0);
-      }
-      contract.finalAmount = Math.round(subtotal * 100) / 100;
-    } else {
-      let subtotal = 0;
-      for (const item of contract.items) {
-        if (item.rentalPrice !== undefined) {
-          subtotal += item.rentalPrice;
-        } else {
-          const end = item.returnedAt || contract.endAt;
-          const { total } = computeItemPrice(contract.startAt, end, item.priceHourly, item.priceDaily);
-          subtotal += total;
-        }
-      }
-      contract.finalAmount = Math.round(subtotal * 100) / 100;
-    }
+     // Se specificato un importo finale, aggiornalo
+     if (finalAmount !== undefined) {
+       contract.finalAmount = finalAmount;
+     } else {
+       let subtotal = 0;
+       for (const item of contract.items) {
+         subtotal += item.rentalPrice || 0;
+       }
+       contract.finalAmount = Math.round(subtotal * 100) / 100;
+     }
     
     // Salva totals se specificato
     if (totals) {
@@ -1060,6 +1085,18 @@ export async function completePayment(req, res) {
     
     await contract.save();
     
+    for (const it of contract.items) {
+      if (it.kind === 'bike' && it.refId) {
+        const end = it.returnedAt || contract.endAt;
+        const durationMs = end - contract.startAt;
+        const durationHours = Math.max(0, durationMs / (1000 * 60 * 60));
+        await Bike.updateOne(
+          { _id: it.refId },
+          { $inc: { totalRevenue: it.rentalPrice || 0, totalRentals: 1, totalHours: durationHours } }
+        );
+      }
+    }
+
     // Aggiorna statistiche giornaliere
     try {
       const bikeCount = contract.items.filter(item => item.kind === 'bike').length;
@@ -1303,7 +1340,7 @@ export const lockPrices = async (req, res) => {
     let subtotal = 0;
     let insurancePaidAmount = 0;
     for (const lp of (contract.lockedItemPrices || [])) {
-      subtotal += lp.basePrice + (lp.insurance || 0);
+      subtotal += lp.basePrice;
       insurancePaidAmount += lp.insurance || 0;
     }
     contract.finalAmount = Math.round(subtotal * 100) / 100;

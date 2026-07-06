@@ -18,10 +18,13 @@ function calculateContractTotal(contract) {
     if (item.kind === 'bike' || item.kind === 'accessory') {
       let itemTotal = 0;
       
-      const hourlyTotal = (item.priceHourly || 0) * durationHours;
-      const dailyTotal = (item.priceDaily || 0) * durationDays;
+      const hourlyRate = item.originalPriceHourly !== undefined ? item.originalPriceHourly : (item.priceHourly || 0);
+      const dailyRate = item.originalPriceDaily !== undefined ? item.originalPriceDaily : (item.priceDaily || 0);
       
-      if (item.priceDaily && dailyTotal < hourlyTotal) {
+      const hourlyTotal = hourlyRate * durationHours;
+      const dailyTotal = dailyRate * durationDays;
+      
+      if (dailyRate && dailyTotal < hourlyTotal) {
         itemTotal = dailyTotal;
       } else {
         itemTotal = hourlyTotal;
@@ -269,10 +272,10 @@ export async function detailedStats(req, res) {
       stats.totalItems++;
       if (item.kind === 'bike') {
         stats.bikeRentals++;
-        stats.bikeRevenue += item.priceHourly || 0;
+        stats.bikeRevenue += item.rentalPrice || (item.originalPriceHourly || item.priceHourly || 0);
       } else if (item.kind === 'accessory') {
         stats.accessoryRentals++;
-        stats.accessoryRevenue += item.priceHourly || 0;
+        stats.accessoryRevenue += item.rentalPrice || (item.originalPriceHourly || item.priceHourly || 0);
       }
     });
 
@@ -343,7 +346,7 @@ export async function topBikes(req, res) {
           };
         }
         bikeStats[key].rentals++;
-        bikeStats[key].revenue += item.priceHourly || 0;
+        bikeStats[key].revenue += item.rentalPrice || (item.originalPriceHourly || item.priceHourly || 0);
       }
     });
   });

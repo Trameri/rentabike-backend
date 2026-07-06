@@ -388,5 +388,68 @@ export async function byBarcode(req,res){
      bikeObj.status = 'in-use';
    }
    
-   res.json(bikeObj);
- }
+    res.json(bikeObj);
+  }
+
+  export async function byId(req, res) {
+    const { id } = req.params;
+    const filter = { _id: id };
+    if (req.user.role !== 'superadmin') {
+      filter.location = req.user.locationId;
+    }
+
+    const bike = await Bike.findOne(filter).populate('location');
+    if (!bike) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    res.json(bike);
+  }
+
+  export async function wallet(req, res) {
+    try {
+      const { id } = req.params;
+      const filter = { _id: id };
+      if (req.user.role !== 'superadmin') {
+        filter.location = req.user.locationId;
+      }
+
+      const bike = await Bike.findOne(filter);
+      if (!bike) {
+        return res.status(404).json({ error: 'Bici non trovata' });
+      }
+
+      const contracts = await Contract.find({
+        'items.refId': bike._id,
+        status: 'completed'
+      })
+        .select('_id startAt endAt status items totals finalAmount')
+        .lean();
+
+      const history = contracts.map((c) => {
+        const item = c.items.find((i) => i.refId.toString() === bike._id.toString());
+        const duration = c.endAt ? (new Date(c.endAt) - new Date(c.startAt)) / (1000 * 60 * 60) : null;
+        return {
+          contractId: c._id,
+          date: c.startAt,
+          duration,
+          amount: item?.rentalPrice || 0,
+          status: c.status
+        };
+      });
+
+      res.json({
+        bike: {
+          id: bike._id,
+          name: bike.name,
+          barcode: bike.barcode,
+          totalRevenue: bike.totalRevenue || 0,
+          totalRentals: bike.totalRentals || 0,
+          totalHours: bike.totalHours || 0
+        },
+        history
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
