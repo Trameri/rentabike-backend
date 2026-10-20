@@ -6,6 +6,7 @@ const ContractItemSchema = new mongoose.Schema({
   kindRef: { type: String, enum: ['Bike','Accessory'], required: true },
   name: String,
   barcode: String,
+  photoUrl: String,
   priceHourly: Number,
   priceDaily: Number,
   originalPriceHourly: Number, // Prezzo orario originale dell'item

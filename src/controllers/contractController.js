@@ -239,25 +239,11 @@ export async function list(req,res){
     .sort({ createdAt: -1 })
     .limit(200);
   
-  // Popola i dati mancanti degli item (come photoUrl) per contratti vecchi
+  // Use the already populated reference instead of querying each item separately.
   for (const contract of rows) {
     for (const item of contract.items) {
-      if (!item.photoUrl && item.refId) {
-        try {
-          if (item.kind === 'bike') {
-            const bike = await Bike.findById(item.refId);
-            if (bike && bike.photoUrl) {
-              item.photoUrl = bike.photoUrl;
-            }
-          } else if (item.kind === 'accessory') {
-            const accessory = await Accessory.findById(item.refId);
-            if (accessory && accessory.photoUrl) {
-              item.photoUrl = accessory.photoUrl;
-            }
-          }
-        } catch (error) {
-          console.log(`Errore popolamento dati item ${item.refId}:`, error.message);
-        }
+      if (!item.photoUrl && item.refId && typeof item.refId === 'object') {
+        item.photoUrl = item.refId.photoUrl || undefined;
       }
     }
   }
