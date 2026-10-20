@@ -14,6 +14,7 @@ import uploadRoutes from "./routes/upload.js";
 import userRoutes from "./routes/users.js";
 import barcodeRoutes from "./routes/barcode.js";
 import statsRoutes from "./routes/stats.js";
+import itemRoutes from "./routes/items.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -45,6 +46,7 @@ app.use("/api/upload", uploadRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/barcode", barcodeRoutes);
 app.use("/api/stats", statsRoutes);
+app.use("/api/items", itemRoutes);
 
 const PORT = process.env.PORT || 4000;
 const HOST = process.env.HOST || '0.0.0.0'; // Espone su tutte le interfacce di rete
