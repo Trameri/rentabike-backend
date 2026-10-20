@@ -242,8 +242,12 @@ export async function list(req,res){
   // Use the already populated reference instead of querying each item separately.
   for (const contract of rows) {
     for (const item of contract.items) {
-      if (!item.photoUrl && item.refId && typeof item.refId === 'object') {
-        item.photoUrl = item.refId.photoUrl || undefined;
+      const populatedItem = item.refId;
+      if (populatedItem && typeof populatedItem === 'object' && populatedItem._id) {
+        if (!item.photoUrl) {
+          item.photoUrl = populatedItem.photoUrl || undefined;
+        }
+        item.refId = populatedItem._id;
       }
     }
   }
