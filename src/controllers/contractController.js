@@ -940,18 +940,24 @@ export async function completePayment(req, res) {
       return res.status(400).json({ error: 'Il contratto deve essere in stato "restituito" per completare il pagamento' });
     }
 
+    const toIdString = (value) => value == null ? null : String(value);
+
     for (const it of contract.items) {
-      const itemIdStr = it._id.toString();
+      const itemIdStr = toIdString(it._id);
 
       if (adjustedItems && Array.isArray(adjustedItems)) {
-        const adjusted = adjustedItems.find(ai => (ai.itemId || ai._id).toString() === itemIdStr);
+        const adjusted = adjustedItems.find(ai =>
+          toIdString(ai?.itemId ?? ai?._id) === itemIdStr
+        );
         if (adjusted && adjusted.rentalPrice !== undefined) {
           it.rentalPrice = adjusted.rentalPrice;
         }
       }
 
       if (it.rentalPrice === undefined && itemPrices && Array.isArray(itemPrices)) {
-        const priced = itemPrices.find(ip => ip.itemId.toString() === itemIdStr);
+        const priced = itemPrices.find(ip =>
+          toIdString(ip?.itemId) === itemIdStr
+        );
         if (priced && priced.price !== undefined) {
           it.rentalPrice = priced.price;
         }
@@ -959,7 +965,7 @@ export async function completePayment(req, res) {
 
       if (it.rentalPrice === undefined) {
         const lockedPrice = contract.lockedItemPrices?.find(lp => 
-          lp.itemId.toString() === itemIdStr
+          toIdString(lp?.itemId) === itemIdStr
         );
         if (lockedPrice) {
           it.rentalPrice = lockedPrice.basePrice;
@@ -971,7 +977,7 @@ export async function completePayment(req, res) {
     for (const it of contract.items) {
       if (it.rentalPrice === undefined) {
         const lockedPrice = contract.lockedItemPrices?.find(lp => 
-          lp.itemId.toString() === it._id.toString()
+          toIdString(lp?.itemId) === toIdString(it._id)
         );
         if (lockedPrice) {
           it.rentalPrice = lockedPrice.basePrice;
@@ -985,6 +991,7 @@ export async function completePayment(req, res) {
     
     // Aggiorna i dati di pagamento
     contract.paymentMethod = paymentMethod;
+    contract.paid = true;
     contract.paymentCompleted = true;
     contract.paymentDate = new Date();
     contract.paymentNotes = paymentNotes || '';
@@ -1037,7 +1044,7 @@ export async function completePayment(req, res) {
     }
     for (const item of contract.items) {
       if (item.insurancePaidInAdvance && !contract.lockedItemPrices?.some(
-        lp => lp.itemId.toString() === (item._id ? item._id.toString() : item.refId.toString())
+        lp => toIdString(lp?.itemId) === toIdString(item._id || item.refId)
       )) {
         insurancePaidAmount += item.insuranceFlat || 0;
       }
